@@ -1,0 +1,37 @@
+menu "Efflorescence"
+
+    config APP_TOUCH_GND_GPIO
+        int "GPIO that grounds the touch sensor (driven low), -1 for none"
+        default 3
+
+    config APP_TOUCH_IO_GPIO
+        int "Touch sensor output GPIO (high when touched)"
+        default 4
+
+    config APP_TOUCH_VCC_GPIO
+        int "GPIO that powers the touch sensor (driven high), -1 for none"
+        default 5
+
+    config APP_LED_GND_GPIO
+        int "GPIO that grounds the LED driver input (driven low), -1 for none"
+        default 6
+
+    config APP_LED_PWM_GPIO
+        int "LED driver PWM GPIO (high = LED on)"
+        default 7
+
+    config APP_PWM_FREQ_HZ
+        int "LED PWM frequency, Hz"
+        default 1250
+
+    config APP_PWM_BITS
+        int "LED PWM resolution, bits"
+        range 8 14
+        default 14
+
+    config APP_LED_DUTY_MIN_PERMILLE
+        int "Lowest PWM duty the LED driver still passes, per mille"
+        range 0 500
+        default 10
+
+endmenu

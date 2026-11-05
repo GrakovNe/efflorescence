@@ -1,0 +1,15 @@
+.cache/
+.idea/
+.vscode/
+*.pyc
+build.log
+build*/
+dependencies.lock
+managed_components/
+sdkconfig
+sdkconfig.old
+test/host/*.dSYM/
+test/host/test_dimmer
+test/host/test_lamp_core
+test/host/test_gesture
+.DS_Store
