@@ -19,7 +19,12 @@ extern "C" {
 #define LAMP_PCT_DEFAULT 60
 
 #define LAMP_RAMP_MS 3000 /* a held finger sweeps the whole range in this time */
-#define LAMP_SOFT_MS 700  /* soft on/off */
+#define LAMP_SOFT_MS 700  /* soft on/off across the whole range */
+
+/* Pass as transition_ms for the soft switch: the time is in proportion
+ * to how far the light has to go, so a dim lamp does not sit still for
+ * most of a fixed time and then drop. */
+#define LAMP_TRANSITION_SOFT UINT32_MAX
 /* Below the floor the LED flickers, so the lamp never rests there and a
  * fade crosses that stretch in at most this long. */
 #define LAMP_TRANSIT_MS 80
@@ -38,11 +43,12 @@ typedef struct {
     uint32_t seq;        /* bumped when on or brightness changes */
 
     bool     fading;
-    bool     fade_ease;
+    bool     fade_ease;  /* the stretch above the floor slows into its end */
     uint16_t fade_from;
     uint16_t fade_to;
     int64_t  fade_start_ms;
-    uint32_t fade_ms;
+    uint32_t fade_lo_ms; /* time for the stretch below the floor */
+    uint32_t fade_hi_ms; /* time for the stretch above it */
 
     bool     ramping;
     int8_t   ramp_dir;
@@ -61,9 +67,9 @@ void lamp_core_init(lamp_core_t *c, bool on, uint8_t brightness,
                     uint16_t floor);
 
 /* brightness 0 keeps the current one. transition_ms is the time for the
- * whole move from the present level, 0 for a jump. Turning on or off
- * follows an S-curve; a change of brightness while on is a straight
- * line. */
+ * whole move from the present level, 0 for a jump: a straight line in
+ * lightness. LAMP_TRANSITION_SOFT is the soft switch: it starts at once
+ * at full speed, and on the way up eases into the brightness. */
 void lamp_core_set(lamp_core_t *c, int64_t now_ms, bool on, uint8_t brightness,
                    uint32_t transition_ms);
 

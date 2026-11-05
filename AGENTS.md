@@ -165,12 +165,17 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
   0 is dark. Brightness 1..100 % spans `floor`..65535 evenly, where the
   floor is the level whose duty is `APP_LED_DUTY_MIN_PERMILLE`. Below
   the floor the light flickers, so the lamp never rests there.
-- Turning on or off follows an S-curve (smoothstep) between the floor
-  and the brightness; the stretch between dark and the floor is crossed
-  in a straight line in at most 80 ms (`LAMP_TRANSIT_MS`), at the start
-  of a fade in and at the end of a fade out. A 30-minute sunrise is the
-  same shape, so it starts at the floor after a blink. A change of
-  brightness while on is a straight line.
+- The soft switch (`LAMP_TRANSITION_SOFT`) takes time in proportion to
+  how far the light has to go: 700 ms across the whole range, almost
+  nothing from a dim lamp. A fixed time made a dim lamp sit still and
+  then drop, and so did an S-curve at any brightness: the owner saw both
+  as "no reaction, then a sudden off". Going down the light moves at
+  once and at a steady pace; going up it eases into the brightness.
+- The stretch between dark and the floor is crossed in a straight line
+  in at most 80 ms (`LAMP_TRANSIT_MS`), at the start of a fade in and at
+  the end of a fade out. A transition given in seconds (API, MQTT,
+  schedule) is a straight line in lightness over that time, so a
+  30-minute sunrise starts at the floor after a blink.
 - Only the lamp task writes LEDC. Everything else goes through the
   `lamp_*()` calls, which take the lock and wake the task.
 - One command format for HTTP and (later) MQTT, parsed by the pure

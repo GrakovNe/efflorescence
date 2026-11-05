@@ -71,8 +71,8 @@ static void test_set_jump(void)
     CHECK(c.seq == seq + 3);
 }
 
-/* Turning on: straight through the stretch below the floor in
- * LAMP_TRANSIT_MS, then an S-curve up to the brightness. */
+/* A given time: straight through the stretch below the floor in
+ * LAMP_TRANSIT_MS, then a straight line up to the brightness. */
 static void test_fade_in(void)
 {
     lamp_core_t c;
@@ -86,13 +86,11 @@ static void test_fade_in(void)
     CHECK(c.level == FLOOR);
 
     int64_t rest = 1000 - LAMP_TRANSIT_MS;
-    /* Slow at both ends, half way at half time. */
-    lamp_core_tick(&c, LAMP_TRANSIT_MS + rest / 10);
-    CHECK(c.level - FLOOR < (MAX - FLOOR) / 30);
+    lamp_core_tick(&c, LAMP_TRANSIT_MS + rest / 4);
+    int quarter = FLOOR + (MAX - FLOOR) / 4;
+    CHECK(c.level >= quarter - 20 && c.level <= quarter + 20);
     lamp_core_tick(&c, LAMP_TRANSIT_MS + rest / 2);
     CHECK(c.level >= MID - 20 && c.level <= MID + 20);
-    lamp_core_tick(&c, LAMP_TRANSIT_MS + rest * 9 / 10);
-    CHECK(MAX - c.level < (MAX - FLOOR) / 30);
 
     lamp_core_tick(&c, 999);
     CHECK(c.level < MAX && lamp_core_busy(&c));
@@ -122,33 +120,131 @@ static void test_fade_out(void)
     CHECK(c.level == 0 && !c.on && !lamp_core_busy(&c));
 }
 
-static void test_fade_is_monotonic_and_smooth(void)
+/* How long a soft switch takes from this brightness, and how far the
+ * light has moved a tenth of the way in. */
+static int soft_off(uint8_t pct, int *moved_early_pct)
+{
+    lamp_core_t c;
+    lamp_core_init(&c, true, pct, FLOOR);
+    int from = c.level;
+    lamp_core_toggle(&c, 0, LAMP_TRANSITION_SOFT);
+    int t = 0;
+    int total = 0;
+    while (lamp_core_busy(&c) && t < 5000) {
+        t++;
+        lamp_core_tick(&c, t);
+        total = t;
+    }
+    lamp_core_init(&c, true, pct, FLOOR);
+    lamp_core_toggle(&c, 0, LAMP_TRANSITION_SOFT);
+    lamp_core_tick(&c, total / 10);
+    *moved_early_pct = (from - c.level) * 100 / from;
+    return total;
+}
+
+/* The soft switch off: the light starts down at once, at a steady pace,
+ * and a dim lamp is not kept waiting. */
+static void test_soft_off(void)
+{
+    int early;
+    int full = soft_off(100, &early);
+    CHECK(full >= LAMP_SOFT_MS + LAMP_TRANSIT_MS - 2 && full <= LAMP_SOFT_MS + LAMP_TRANSIT_MS + 2);
+    /* A tenth of the time in, a fair part of the way down already. */
+    CHECK(early >= 7);
+
+    int half = soft_off(50, &early);
+    CHECK(half > full / 2 - 20 && half < full / 2 + 60);
+    CHECK(early >= 5);
+
+    /* At the dimmest there is only the short stretch to dark. */
+    int dim = soft_off(1, &early);
+    CHECK(dim >= LAMP_TRANSIT_MS - 2 && dim <= LAMP_TRANSIT_MS + 2);
+    CHECK(early >= 7);
+    /* Just above it: a few milliseconds more, and it is already moving
+     * (slower than it will below the floor, hence the smaller share). */
+    int low = soft_off(3, &early);
+    CHECK(low < LAMP_TRANSIT_MS + 30);
+    CHECK(early >= 4);
+
+    /* Never a pause followed by a drop: no millisecond takes more than
+     * its share by far. */
+    lamp_core_t c;
+    for (int pct = 1; pct <= 100; pct += 3) {
+        lamp_core_init(&c, true, (uint8_t)pct, FLOOR);
+        int prev = c.level;
+        int max_step = 0;
+        int still = 0;
+        int longest_still = 0;
+        lamp_core_toggle(&c, 0, LAMP_TRANSITION_SOFT);
+        for (int t = 1; lamp_core_busy(&c) && t < 5000; t++) {
+            lamp_core_tick(&c, t);
+            int step = prev - c.level;
+            CHECK(step >= 0);
+            if (step > max_step) {
+                max_step = step;
+            }
+            still = step == 0 ? still + 1 : 0;
+            if (still > longest_still) {
+                longest_still = still;
+            }
+            prev = c.level;
+        }
+        CHECK(c.level == 0 && !c.on);
+        CHECK(max_step <= FLOOR / LAMP_TRANSIT_MS + 2);
+        CHECK(longest_still <= 2);
+    }
+}
+
+/* The soft switch on: quick out of the dark, then slowing into the
+ * brightness. */
+static void test_soft_on(void)
 {
     lamp_core_t c;
     lamp_core_init(&c, false, 100, FLOOR);
-    lamp_core_set(&c, 0, true, 0, LAMP_SOFT_MS);
-    uint16_t prev = 0;
-    int max_step = 0;
-    for (int t = 0; t <= LAMP_SOFT_MS; t++) {
+    lamp_core_toggle(&c, 0, LAMP_TRANSITION_SOFT);
+    lamp_core_tick(&c, LAMP_TRANSIT_MS);
+    CHECK(c.level == FLOOR);
+
+    /* Half of the remaining time covers three quarters of the way. */
+    lamp_core_tick(&c, LAMP_TRANSIT_MS + LAMP_SOFT_MS / 2);
+    int three_quarters = FLOOR + (MAX - FLOOR) * 3 / 4;
+    CHECK(c.level >= three_quarters - 30 && c.level <= three_quarters + 30);
+
+    int prev = 0;
+    int last_step = 0;
+    lamp_core_init(&c, false, 100, FLOOR);
+    lamp_core_toggle(&c, 0, LAMP_TRANSITION_SOFT);
+    for (int t = 1; t <= LAMP_TRANSIT_MS + LAMP_SOFT_MS; t++) {
         lamp_core_tick(&c, t);
         CHECK(c.level >= prev);
-        if (c.level - prev > max_step) {
-            max_step = c.level - prev;
-        }
+        last_step = c.level - prev;
         prev = c.level;
     }
-    CHECK(c.level == MAX);
-    /* No millisecond moves the light by more than 0.4 % of the scale. */
-    CHECK(max_step < MAX / 250);
+    CHECK(c.level == MAX && !lamp_core_busy(&c));
+    /* It lands softly. */
+    CHECK(last_step <= 2);
 
-    lamp_core_toggle(&c, 10000, LAMP_SOFT_MS);
-    prev = MAX;
-    for (int t = 0; t <= LAMP_SOFT_MS; t++) {
-        lamp_core_tick(&c, 10000 + t);
-        CHECK(c.level <= prev);
-        prev = c.level;
-    }
-    CHECK(c.level == 0);
+    /* To a dim brightness it is over almost as soon as it is lit. */
+    lamp_core_init(&c, false, 3, FLOOR);
+    lamp_core_toggle(&c, 0, LAMP_TRANSITION_SOFT);
+    lamp_core_tick(&c, LAMP_TRANSIT_MS + 30);
+    CHECK(c.level == LVL(3) && !lamp_core_busy(&c));
+}
+
+/* The soft switch between two brightnesses takes its share of the time. */
+static void test_soft_change(void)
+{
+    lamp_core_t c;
+    lamp_core_init(&c, true, 20, FLOOR);
+    lamp_core_set(&c, 0, true, 80, LAMP_TRANSITION_SOFT);
+    int expect = LAMP_SOFT_MS * (LVL(80) - LVL(20)) / (MAX - FLOOR);
+    lamp_core_tick(&c, expect - 5);
+    CHECK(lamp_core_busy(&c));
+    lamp_core_tick(&c, expect + 1);
+    CHECK(c.level == LVL(80) && !lamp_core_busy(&c));
+
+    lamp_core_set(&c, 5000, true, 80, LAMP_TRANSITION_SOFT);
+    CHECK(!lamp_core_busy(&c));
 }
 
 static void test_reverse_mid_fade(void)
@@ -359,7 +455,9 @@ int main(void)
     test_set_jump();
     test_fade_in();
     test_fade_out();
-    test_fade_is_monotonic_and_smooth();
+    test_soft_off();
+    test_soft_on();
+    test_soft_change();
     test_reverse_mid_fade();
     test_brightness_change_is_linear();
     test_sunrise();

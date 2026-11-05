@@ -63,7 +63,7 @@ static uint32_t transition(int32_t transition_ms)
     if (transition_ms >= 0) {
         return (uint32_t)transition_ms;
     }
-    return ctx.cfg->soft_switch ? LAMP_SOFT_MS : 0;
+    return ctx.cfg->soft_switch ? LAMP_TRANSITION_SOFT : 0;
 }
 
 static void write_pwm(uint32_t duty, uint32_t freq_hz)

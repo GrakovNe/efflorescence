@@ -52,57 +52,49 @@ void lamp_core_init(lamp_core_t *c, bool on, uint8_t brightness, uint16_t floor)
     c->ramp_dir = 1;
 }
 
-/* x and the result are Q16 fractions: slow, fast, slow. */
-static int64_t smoothstep(int64_t x)
+/* x and the result are Q16 fractions: off at full speed, slowing to a
+ * stop. */
+static int64_t ease_out(int64_t x)
 {
-    return x * x / Q16 * (3 * Q16 - 2 * x) / Q16;
+    return x * (2 * Q16 - x) / Q16;
 }
 
 /* A fade has up to two stretches. The one below the floor is crossed
  * straight and fast, wherever the fade starts or ends. The one above it
- * takes the rest of the time, along an S-curve or a straight line. */
+ * is where the light is seen to move. */
 typedef struct {
     int32_t lo_from, lo_to; /* the stretch below the floor */
     int32_t hi_from, hi_to; /* the stretch above it */
-    int64_t lo_ms, hi_ms;
     bool    up;
 } fade_plan_t;
 
-static void fade_plan(const lamp_core_t *c, fade_plan_t *p)
+static void fade_plan(const lamp_core_t *c, int32_t from, int32_t to,
+                      fade_plan_t *p)
 {
-    int32_t from = c->fade_from;
-    int32_t to = c->fade_to;
     int32_t floor = c->floor;
     p->up = to > from;
     p->lo_from = from < floor ? from : floor;
     p->lo_to = to < floor ? to : floor;
     p->hi_from = from > floor ? from : floor;
     p->hi_to = to > floor ? to : floor;
-
-    int32_t lo = p->lo_to > p->lo_from ? p->lo_to - p->lo_from
-                                       : p->lo_from - p->lo_to;
-    bool hi = p->hi_to != p->hi_from;
-    p->lo_ms = 0;
-    if (lo > 0) {
-        p->lo_ms = (int64_t)LAMP_TRANSIT_MS * lo / floor;
-        int64_t cap = hi ? c->fade_ms / 3 : c->fade_ms;
-        if (p->lo_ms > cap) {
-            p->lo_ms = cap;
-        }
-    }
-    p->hi_ms = hi ? (int64_t)c->fade_ms - p->lo_ms : 0;
 }
 
-static uint16_t along_lo(const fade_plan_t *p, int64_t t)
+static int32_t dist(int32_t a, int32_t b)
 {
-    return (uint16_t)(p->lo_from + (int64_t)(p->lo_to - p->lo_from) * t / p->lo_ms);
+    return a > b ? a - b : b - a;
+}
+
+static uint16_t along_lo(const lamp_core_t *c, const fade_plan_t *p, int64_t t)
+{
+    return (uint16_t)(p->lo_from +
+                      (int64_t)(p->lo_to - p->lo_from) * t / c->fade_lo_ms);
 }
 
 static uint16_t along_hi(const lamp_core_t *c, const fade_plan_t *p, int64_t t)
 {
-    int64_t x = t * Q16 / p->hi_ms;
+    int64_t x = t * Q16 / c->fade_hi_ms;
     if (c->fade_ease) {
-        x = smoothstep(x);
+        x = ease_out(x);
     }
     return (uint16_t)(p->hi_from + (int64_t)(p->hi_to - p->hi_from) * x / Q16);
 }
@@ -110,37 +102,58 @@ static uint16_t along_hi(const lamp_core_t *c, const fade_plan_t *p, int64_t t)
 /* Returns false once the fade is over. */
 static bool fade_at(const lamp_core_t *c, int64_t elapsed, uint16_t *level)
 {
-    fade_plan_t p;
-    fade_plan(c, &p);
-    if (elapsed >= p.lo_ms + p.hi_ms) {
+    if (elapsed >= (int64_t)c->fade_lo_ms + c->fade_hi_ms) {
         *level = c->fade_to;
         return false;
     }
     if (elapsed < 0) {
         elapsed = 0;
     }
-    int64_t first_ms = p.up ? p.lo_ms : p.hi_ms;
+    fade_plan_t p;
+    fade_plan(c, c->fade_from, c->fade_to, &p);
+    /* Up: the dark stretch comes first. Down: it comes last. */
+    int64_t first_ms = p.up ? c->fade_lo_ms : c->fade_hi_ms;
     bool in_lo = p.up ? elapsed < first_ms : elapsed >= first_ms;
     int64_t t = elapsed < first_ms ? elapsed : elapsed - first_ms;
-    *level = in_lo ? along_lo(&p, t) : along_hi(c, &p, t);
+    *level = in_lo ? along_lo(c, &p, t) : along_hi(c, &p, t);
     return true;
 }
 
 static void fade_to(lamp_core_t *c, int64_t now_ms, uint16_t target,
                     uint32_t transition_ms)
 {
-    if (transition_ms == 0 || c->level == target) {
+    fade_plan_t p;
+    fade_plan(c, c->level, target, &p);
+    int64_t lo = dist(p.lo_from, p.lo_to);
+    int64_t hi = dist(p.hi_from, p.hi_to);
+    int64_t lo_ms = lo > 0 ? LAMP_TRANSIT_MS * lo / c->floor : 0;
+    int64_t hi_ms;
+    bool ease = false;
+
+    if (transition_ms == LAMP_TRANSITION_SOFT) {
+        int64_t span = LAMP_LEVEL_MAX - c->floor;
+        hi_ms = span > 0 ? LAMP_SOFT_MS * hi / span : 0;
+        ease = p.up;
+    } else {
+        int64_t cap = hi > 0 ? transition_ms / 3 : transition_ms;
+        if (lo_ms > cap) {
+            lo_ms = cap;
+        }
+        hi_ms = hi > 0 ? (int64_t)transition_ms - lo_ms : 0;
+    }
+
+    if (lo_ms + hi_ms == 0) {
         c->level = target;
         c->fading = false;
         return;
     }
     c->fading = true;
-    /* Coming out of the dark or going into it is what gets the S-curve. */
-    c->fade_ease = target == 0 || c->level < c->floor;
+    c->fade_ease = ease;
     c->fade_from = c->level;
     c->fade_to = target;
     c->fade_start_ms = now_ms;
-    c->fade_ms = transition_ms;
+    c->fade_lo_ms = (uint32_t)lo_ms;
+    c->fade_hi_ms = (uint32_t)hi_ms;
 }
 
 void lamp_core_set(lamp_core_t *c, int64_t now_ms, bool on, uint8_t brightness,
