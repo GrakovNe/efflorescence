@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Lamps in the field compare this with what they run: it has to be
+      # v<major>.<minor>.<patch> and it has to grow.
+      - name: Version
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v1.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32c3
+          command: >
+            APP_VERSION=${{ steps.ver.outputs.tag }} idf.py build &&
+            esptool.py --chip esp32c3 merge_bin -o build/efflorescence-full.bin
+            --flash_mode dio --flash_size 4MB --flash_freq 80m
+            0x0 build/bootloader/bootloader.bin
+            0x8000 build/partition_table/partition-table.bin
+            0xf000 build/ota_data_initial.bin
+            0x20000 build/efflorescence.bin
+
+      # ota.json is what the lamps read; the app image next to it is what
+      # they download. The full image is for a first flash over USB.
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp flasher/index.html site/
+          cp build/efflorescence-full.bin site/
+          cp build/efflorescence.bin site/efflorescence-app.bin
+          sed "s/__VERSION__/${{ steps.ver.outputs.tag }}/" flasher/manifest.json > site/manifest.json
+          sed "s/__VERSION__/${{ steps.ver.outputs.tag }}/" flasher/ota.json > site/ota.json
+
+      - name: Attach binaries to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            site/efflorescence-full.bin
+            site/efflorescence-app.bin
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  pages:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
