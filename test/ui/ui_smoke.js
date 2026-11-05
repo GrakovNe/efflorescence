@@ -61,6 +61,7 @@ function runPage(file, apiData) {
     setInterval: () => 0,
     clearInterval: () => {},
     setTimeout: () => 0,
+    clearTimeout: () => {},
     console, Date, Math, JSON, String, Number, Array, Promise, Set,
   };
   vm.createContext(ctx);
@@ -82,7 +83,7 @@ function check(cond, name) {
     time: { timestamp: now, synced: true, uptime_s: 5231 },
     device: {
       name: "Bedside", id: "c6e0", hostname: "bedside", chip: "ESP32-C3", revision: "v0.4", cores: 1, cpu_mhz: 160,
-      firmware: "abc1234", idf: "v5.5.5", build_date: "Nov  5 2026", mac: "44:b1:76:5d:c6:e0",
+      firmware: "abc1234", slot: "ota_1", pending_verify: false, idf: "v5.5.5", build_date: "Nov  5 2026", mac: "44:b1:76:5d:c6:e0",
       flash_bytes: 4194304, heap_free: 180000, heap_min_free: 150000, reset_reason: "power_on",
     },
     mode: "normal",
@@ -164,6 +165,7 @@ function check(cond, name) {
   check(i.els["v-reset"].textContent === "Power on", "info: reset reason");
   check(i.els["v-chip"].textContent === "ESP32-C3 rev v0.4 · 1 × 160 MHz", "info: chip row");
   check(i.els["v-fw"].textContent === "abc1234", "info: firmware");
+  check(i.els["v-slot"].textContent === "ota_1", "info: slot");
 
   const st2 = { ...status, mode: "fallback",
                 light: { state: "OFF", brightness: 60, soft: false,
@@ -230,6 +232,32 @@ function check(cond, name) {
   check(saved && saved.device.name === "Night Light", "setup: posts the device name");
   check(saved && saved.wifi.ssid === "Home" && !("password" in saved.wifi), "setup: untouched password is not sent");
   check(saved && saved.time.ntp_server === "pool.ntp.org", "setup: posts ntp");
+
+  const ota = { current: "v1.0.12", slot: "ota_0", pending_verify: false, phase: "idle", progress: null,
+                available: null, newer: false, error: null, manifest: "https://example.org/ota.json" };
+  const withOta = o => ({ "/api/v1/status": status, "/api/v1/config": cfg, "/api/v1/ota": { ...ota, ...o },
+                          "/api/v1/wifi/scan": { scanning: false, networks: [] } });
+  const o1 = await runPage(path.join(WEB, "setup.html"), withOta({}));
+  check(o1.els.otaline.textContent === "Version v1.0.12", "setup: firmware line before a check");
+  check(o1.els.otainstall.style.display === "none", "setup: no install button before a check");
+  const o2 = await runPage(path.join(WEB, "setup.html"), withOta({ available: "v1.0.13", newer: true }));
+  check(o2.els.otaline.textContent === "Version v1.0.12 · v1.0.13 is available", "setup: update offered");
+  check(o2.els.otainstall.style.display === "" && o2.els.otainstall.textContent === "Install v1.0.13", "setup: install button names the version");
+  const o3 = await runPage(path.join(WEB, "setup.html"), withOta({ available: "v1.0.12" }));
+  check(o3.els.otaline.textContent === "Version v1.0.12 · up to date", "setup: up to date");
+  const o4 = await runPage(path.join(WEB, "setup.html"), withOta({ phase: "downloading", progress: 43, available: "v1.0.13", newer: true }));
+  check(o4.els.otaline.textContent === "Downloading v1.0.13 · 43 %", "setup: download progress");
+  check(o4.els.otacheck.disabled === true && o4.els.otainstall.style.display === "none", "setup: buttons locked while busy");
+  const o5 = await runPage(path.join(WEB, "setup.html"), withOta({ error: "manifest: HTTP 404" }));
+  check(o5.els.otaline.textContent === "Version v1.0.12 · manifest: HTTP 404", "setup: update error shown");
+  check(o5.els.otaline.className === "hint err", "setup: update error is red");
+  const o6 = await runPage(path.join(WEB, "setup.html"), withOta({ pending_verify: true }));
+  check(o6.els.otaline.textContent === "Version v1.0.12 · on probation", "setup: probation shown");
+  const o7 = await runPage(path.join(WEB, "setup.html"), withOta({ phase: "restarting" }));
+  check(o7.els.rtitle.textContent === "Updating", "setup: restart screen after an install");
+  await o1.els.otacheck.onclick();
+  check(o1.fetchCalls.some(c => c.startsWith("/api/v1/ota/check POST")), "setup: check button posts");
+  check(!o1.els.savebar || !o1.els.savebar.className.includes("show"), "setup: firmware actions are not unsaved changes");
 
   const s4 = await runPage(path.join(WEB, "setup.html"), {
     "/api/v1/status": { ...status, mode: "provisioning" },

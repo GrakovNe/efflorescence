@@ -105,6 +105,8 @@ textarea { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size
 @keyframes spin { to { transform:rotate(360deg) } }
 
 .acts { display:flex; align-items:center; justify-content:flex-end; gap:14px; flex-wrap:wrap; }
+.acts.left { justify-content:flex-start; margin-top:14px; }
+.hint.err { color:var(--error); }
 .confirm { display:none; align-items:center; gap:14px; font-size:14px; color:var(--muted); }
 .confirm.show { display:flex; }
 
@@ -186,6 +188,19 @@ footer .l + .l { margin-top:4px; }
   </section>
 
   <section class="sec">
+    <div class="lab">Firmware</div>
+    <div class="fields">
+      <div class="hint" id="otaline">—</div>
+      <div class="acts left">
+        <button class="btn" type="button" id="otacheck">Check for updates</button>
+        <button class="btn primary" type="button" id="otainstall" style="display:none">Install</button>
+        <button class="btn text" type="button" id="otapick">Upload a file</button>
+        <input type="file" id="otafile" accept=".bin" style="display:none">
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
     <div class="lab">Restart</div>
     <div class="fields">
       <div class="acts">
@@ -251,7 +266,7 @@ function markDirty(k) {
   $("savebar").classList.add("show");
   document.body.classList.add("dirty");
 }
-document.querySelectorAll("main input, main textarea").forEach(el => {
+document.querySelectorAll("main input:not([type=file]), main textarea").forEach(el => {
   el.addEventListener("input", () => markDirty(el.id));
   el.addEventListener("change", () => markDirty(el.id));
 });
@@ -383,6 +398,70 @@ $("resetok").onclick = async () => {
               "http://192.168.4.1/", "The setup page opens by itself on most phones.", false);
 };
 
+const OTA_BUSY = { checking: 1, downloading: 1, uploading: 1 };
+let otaTimer = 0;
+
+function otaRender(j) {
+  const line = $("otaline"), pct = j.progress != null ? " · " + j.progress + " %" : "";
+  let t = "Version " + j.current + (j.pending_verify ? " · on probation" : "");
+  line.className = "hint";
+  if (j.phase === "checking") t += " · checking…";
+  else if (j.phase === "downloading") t = "Downloading " + (j.available || "") + pct;
+  else if (j.phase === "uploading") t = "Uploading" + pct;
+  else if (j.phase === "restarting") t = "Installed, restarting";
+  else if (j.error) { t += " · " + j.error; line.className = "hint err"; }
+  else if (j.available) t += j.newer ? " · " + j.available + " is available" : " · up to date";
+  line.textContent = t;
+  const busy = !!OTA_BUSY[j.phase];
+  $("otacheck").disabled = busy;
+  $("otapick").disabled = busy;
+  $("otainstall").style.display = j.newer && !busy && j.phase !== "restarting" ? "" : "none";
+  $("otainstall").textContent = "Install " + (j.available || "");
+  if (j.phase === "restarting") {
+    showRestart("Updating", "The new firmware starts in a few seconds at", location.origin + "/", "", true);
+  }
+  return busy;
+}
+
+async function otaPoll() {
+  clearTimeout(otaTimer);
+  try {
+    const r = await fetch("/api/v1/ota");
+    if (otaRender(await r.json())) otaTimer = setTimeout(otaPoll, 1000);
+  } catch (e) {
+    otaTimer = setTimeout(otaPoll, 2000);
+  }
+}
+
+async function otaPost(path) {
+  try {
+    const r = await fetch(path, { method: "POST" });
+    const j = await r.json();
+    if (j.current) otaRender(j);
+    else { $("otaline").textContent = j.error || "Request failed."; $("otaline").className = "hint err"; }
+  } catch (e) {}
+  otaPoll();
+}
+$("otacheck").onclick = () => otaPost("/api/v1/ota/check");
+$("otainstall").onclick = () => otaPost("/api/v1/ota/install");
+$("otapick").onclick = () => $("otafile").click();
+$("otafile").addEventListener("change", async () => {
+  const f = $("otafile").files[0];
+  if (!f) return;
+  $("otaline").textContent = "Uploading " + f.name;
+  $("otaline").className = "hint";
+  otaTimer = setTimeout(otaPoll, 1000);
+  try {
+    const r = await fetch("/api/v1/ota", {
+      method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: f
+    });
+    otaRender(await r.json());
+  } catch (e) {
+    otaPoll();
+  }
+  $("otafile").value = "";
+});
+
 $("save").onclick = async () => {
   const body = {
     device: { name: $("name").value },
@@ -444,6 +523,7 @@ function fill(j) {
     const r = await fetch("/api/v1/config");
     fill(await r.json());
   } catch (e) {}
+  otaPoll();
   scan(true);
 })();
 </script>

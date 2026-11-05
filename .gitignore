@@ -15,4 +15,5 @@ test/host/test_gesture
 test/host/test_appconf
 test/host/test_config_merge
 test/host/test_light_cmd
+test/host/test_ota_logic
 .DS_Store

@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "esp_app_desc.h"
 #include "esp_chip_info.h"
 #include "esp_flash.h"
 #include "esp_http_server.h"
@@ -24,6 +25,7 @@
 #include "config_merge.h"
 #include "lamp.h"
 #include "light_cmd.h"
+#include "ota.h"
 #include "reset.h"
 #include "settings.h"
 #include "time_mgr.h"
@@ -35,12 +37,9 @@
 
 static const char *TAG = "web";
 
-#ifndef APP_VER
-#define APP_VER "dev"
-#endif
-
 #define POST_BODY_MAX 4096
 #define CMD_BODY_MAX  256
+#define UPLOAD_CHUNK   4096
 
 /* What the 80 MHz LEDC clock can divide down to at this resolution. */
 #define PWM_FREQ_MIN_HZ 10
@@ -276,7 +275,11 @@ static esp_err_t handler_status(httpd_req_t *req)
     cJSON_AddStringToObject(dev, "revision", rev);
     cJSON_AddNumberToObject(dev, "cores", chip.cores);
     cJSON_AddNumberToObject(dev, "cpu_mhz", CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ);
-    cJSON_AddStringToObject(dev, "firmware", APP_VER);
+    cJSON_AddStringToObject(dev, "firmware", esp_app_get_description()->version);
+    ota_status_t ota;
+    ota_get_status(&ota);
+    cJSON_AddStringToObject(dev, "slot", ota.slot);
+    cJSON_AddBoolToObject(dev, "pending_verify", ota.pending_verify);
     cJSON_AddStringToObject(dev, "idf", esp_get_idf_version());
     cJSON_AddStringToObject(dev, "build_date", __DATE__);
     cJSON_AddStringToObject(dev, "mac", s_mac_str);
@@ -464,6 +467,120 @@ static esp_err_t handler_reboot(httpd_req_t *req)
     return r;
 }
 
+static esp_err_t send_ota(httpd_req_t *req, const char *status)
+{
+    ota_status_t s;
+    ota_get_status(&s);
+    cJSON *o = cJSON_CreateObject();
+    if (o == NULL) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, NULL);
+    }
+    cJSON_AddStringToObject(o, "current", s.current);
+    cJSON_AddStringToObject(o, "slot", s.slot);
+    cJSON_AddBoolToObject(o, "pending_verify", s.pending_verify);
+    cJSON_AddStringToObject(o, "phase", ota_phase_name(s.phase));
+    if (s.progress >= 0) {
+        cJSON_AddNumberToObject(o, "progress", s.progress);
+    } else {
+        cJSON_AddNullToObject(o, "progress");
+    }
+    add_str_or_null(o, "available", s.available);
+    cJSON_AddBoolToObject(o, "newer", s.newer);
+    add_str_or_null(o, "error", s.error);
+    cJSON_AddStringToObject(o, "manifest", CONFIG_APP_UPDATE_URL);
+    return send_json(req, status, o);
+}
+
+static esp_err_t handler_ota_get(httpd_req_t *req)
+{
+    return send_ota(req, "200 OK");
+}
+
+/* An empty body checks the configured manifest; {"url": "..."} checks
+ * another one, which is how an update is tried before it is released. */
+static esp_err_t handler_ota_check(httpd_req_t *req)
+{
+    char body[CMD_BODY_MAX + OTA_URL_MAX];
+    if (read_body(req, body, sizeof body) < 0) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, NULL);
+    }
+    char url[OTA_URL_MAX + 1] = "";
+    if (body[0] != '\0') {
+        cJSON *root = cJSON_Parse(body);
+        const cJSON *u = cJSON_GetObjectItemCaseSensitive(root, "url");
+        bool bad = !cJSON_IsObject(root) ||
+                   (u != NULL && (!cJSON_IsString(u) ||
+                                  strlen(u->valuestring) > OTA_URL_MAX));
+        if (!bad && u != NULL) {
+            strlcpy(url, u->valuestring, sizeof url);
+        }
+        cJSON_Delete(root);
+        if (bad) {
+            return send_json_err(req, "\"url\" must be a string of a sane length");
+        }
+    }
+    if (!ota_check(url)) {
+        return send_json_err(req, "another update operation is running");
+    }
+    return send_ota(req, "200 OK");
+}
+
+static esp_err_t handler_ota_install(httpd_req_t *req)
+{
+    drain_body(req);
+    if (!ota_install()) {
+        return send_json_err(req, "nothing checked yet, or another update "
+                                  "operation is running");
+    }
+    return send_ota(req, "200 OK");
+}
+
+/* The image is the request body:
+ *   curl --data-binary @build/efflorescence.bin http://<host>/api/v1/ota */
+static esp_err_t handler_ota_upload(httpd_req_t *req)
+{
+    if (req->content_len <= 0) {
+        return send_json_err(req, "send the image as the request body");
+    }
+    if (ota_upload_begin(req->content_len) != ESP_OK) {
+        drain_body(req);
+        return send_ota(req, "400 Bad Request");
+    }
+    char *buf = malloc(UPLOAD_CHUNK);
+    if (buf == NULL) {
+        ota_upload_abort();
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, NULL);
+    }
+    int remaining = req->content_len;
+    bool failed = false;
+    while (remaining > 0) {
+        int n = httpd_req_recv(req, buf, remaining < UPLOAD_CHUNK ? remaining
+                                                                 : UPLOAD_CHUNK);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
+            continue;
+        }
+        if (n <= 0) {
+            if (!failed) {
+                ota_upload_abort();
+            }
+            free(buf);
+            return ESP_FAIL;
+        }
+        remaining -= n;
+        /* After a failure the rest is still read, so the answer arrives. */
+        if (!failed && ota_upload_write(buf, (size_t)n) != ESP_OK) {
+            failed = true;
+        }
+    }
+    free(buf);
+    if (failed || ota_upload_end() != ESP_OK) {
+        return send_ota(req, "400 Bad Request");
+    }
+    esp_err_t r = send_ota(req, "200 OK");
+    schedule_restart();
+    return r;
+}
+
 /* Bench tool: {"duty": 0..duty_max, "freq_hz": n} drives the LED raw,
  * {"duty": null} hands it back to the lamp. */
 static esp_err_t handler_debug_pwm(httpd_req_t *req)
@@ -530,6 +647,11 @@ static esp_err_t handler_404(httpd_req_t *req, httpd_err_code_t err)
     return httpd_resp_send(req, "not found", HTTPD_RESP_USE_STRLEN);
 }
 
+bool web_server_up(void)
+{
+    return s_httpd != NULL;
+}
+
 void web_server_start(const appconf_t *cfg, const char device_id[5])
 {
     s_cfg = cfg;
@@ -539,7 +661,7 @@ void web_server_start(const appconf_t *cfg, const char device_id[5])
     snprintf(s_mac_str, sizeof s_mac_str, MACSTR, MAC2STR(mac));
 
     httpd_config_t hc = HTTPD_DEFAULT_CONFIG();
-    hc.max_uri_handlers = 24;
+    hc.max_uri_handlers = 32;
     hc.stack_size = 8192;
     hc.lru_purge_enable = true;
     hc.server_port = 80;
@@ -563,6 +685,13 @@ void web_server_start(const appconf_t *cfg, const char device_id[5])
         { .uri = "/api/v1/factory-reset", .method = HTTP_OPTIONS, .handler = handler_options },
         { .uri = "/api/v1/reboot", .method = HTTP_POST, .handler = handler_reboot },
         { .uri = "/api/v1/reboot", .method = HTTP_OPTIONS, .handler = handler_options },
+        { .uri = "/api/v1/ota", .method = HTTP_GET, .handler = handler_ota_get },
+        { .uri = "/api/v1/ota", .method = HTTP_POST, .handler = handler_ota_upload },
+        { .uri = "/api/v1/ota", .method = HTTP_OPTIONS, .handler = handler_options },
+        { .uri = "/api/v1/ota/check", .method = HTTP_POST, .handler = handler_ota_check },
+        { .uri = "/api/v1/ota/check", .method = HTTP_OPTIONS, .handler = handler_options },
+        { .uri = "/api/v1/ota/install", .method = HTTP_POST, .handler = handler_ota_install },
+        { .uri = "/api/v1/ota/install", .method = HTTP_OPTIONS, .handler = handler_options },
         { .uri = "/api/v1/debug/pwm", .method = HTTP_POST, .handler = handler_debug_pwm },
         { .uri = "/api/v1/debug/pwm", .method = HTTP_OPTIONS, .handler = handler_options },
     };

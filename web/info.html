@@ -104,6 +104,7 @@ footer .err { color:var(--error); }
     <div><div class="lab">Firmware</div></div>
     <div class="tbl">
       <div><span>Version</span><span id="v-fw">—</span></div>
+      <div><span>Slot</span><span id="v-slot">—</span></div>
       <div><span>ESP-IDF</span><span id="v-idf">—</span></div>
       <div><span>Built</span><span id="v-built">—</span></div>
     </div>
@@ -165,6 +166,7 @@ function render(j) {
   set("v-heap", mb(d.heap_free) + " · lowest " + mb(d.heap_min_free));
 
   set("v-fw", d.firmware);
+  set("v-slot", d.slot + (d.pending_verify ? " · on probation" : ""));
   set("v-idf", d.idf);
   set("v-built", d.build_date);
   $("fw").textContent = " · Firmware " + d.firmware + " · ESP-IDF " + d.idf;

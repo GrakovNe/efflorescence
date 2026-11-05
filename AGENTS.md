@@ -21,6 +21,10 @@ that are not visible in the code.
 - ESP-IDF v5.5.5 in `~/esp/esp-idf`. `esptool` v5 via pipx; the same
   venv has pyserial: `~/.local/pipx/venvs/esptool/bin/python`.
 - Flash reads over this USB work (`read-flash` of 4 MB takes 17 s).
+- On the home Wi-Fi the lamp is `efflorescence-c6e0.local`, on
+  2026-11-05 at `192.168.1.91`. Use `curl -4` or the IP: plain `curl`
+  asks for an IPv6 address of a `.local` name first and stalls for 5 s
+  on every request.
 
 ## Recipes
 
@@ -41,6 +45,36 @@ skips a git check that needs the network. After editing
 Flash: `idf.py -p /dev/cu.usbmodemXXXX flash` (bootloader, partition
 table, otadata, app). `app-flash` keeps settings in `nvs`. `erase-flash`
 gives the factory state.
+
+Flash over the air, which is the only way once the lamp is in its case
+(the image goes into the other slot and the lamp restarts into it):
+
+```bash
+curl --data-binary @build/efflorescence.bin http://192.168.1.91/api/v1/ota
+curl http://192.168.1.91/api/v1/ota     # version, slot, pending_verify
+```
+
+The published-update path without a release: serve a manifest from this
+machine and point one check at it.
+
+```bash
+mkdir /tmp/ota && cp build/efflorescence.bin /tmp/ota/efflorescence-app.bin
+echo '{"version":"v9.9.9","app":"efflorescence-app.bin"}' > /tmp/ota/ota.json
+(cd /tmp/ota && python3 -m http.server 8765 --bind <this machine's IP>) &
+curl -d '{"url":"http://<this machine's IP>:8765/ota.json"}' http://192.168.1.91/api/v1/ota/check
+curl -X POST http://192.168.1.91/api/v1/ota/install
+```
+
+Rollback bench build (its own build directory, because the CMake cache
+keeps `-D` flags): an image that never confirms itself. Upload it and
+the lamp comes back on the previous image 180 s later, or at once after
+any restart.
+
+```bash
+IDF_SKIP_CHECK_SUBMODULES=1 idf.py -B build-rb \
+  -DSDKCONFIG=build-rb/sdkconfig -DAPP_OTA_TEST_NO_CONFIRM=1 build
+curl --data-binary @build-rb/efflorescence.bin http://192.168.1.91/api/v1/ota
+```
 
 Console capture (opening the port resets the board, so every capture
 starts at boot and then follows the running device):
@@ -132,6 +166,20 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
 - The partition table has two OTA slots and the bootloader is built with
   app rollback. Neither can be changed over the air, and the device is
   sealed, so do not change them casually.
+- Only `ota.c` calls `esp_ota_*` and `esp_https_ota_*`; the rules it
+  follows (version order, the manifest, when a new image counts as good)
+  are the pure `ota_logic.c`. A new image is on probation until the way
+  the next update would arrive is open again: station connected and the
+  web server up, or, without Wi-Fi settings, the setup AP up for 20 s.
+  After 180 s without that it rolls itself back. Verified on the lamp on
+  2026-11-05, both by the timer and by a restart during probation.
+- An image is accepted only if its project name equals the running
+  one. Renaming `project(efflorescence)` therefore locks every lamp in
+  the field out of updates.
+- The version is `PROJECT_VER`: `APP_VERSION` from the environment in a
+  release build (`v1.0.<run>`), `git describe` otherwise. Only versions
+  of the form `v1.0.123` count as releases; a development build is
+  offered any release and never offered as one.
 - PWM is 1250 Hz, 14 bit. The optocoupler is the slow part: a PC817 into
   roughly 10 kΩ has 55-70 µs edges (Sharp datasheet, Fig. 13). Raising
   the frequency shortens the usable range from the bottom. The lowest
@@ -149,8 +197,9 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
 - MQTT: `<prefix>/set`, retained `<prefix>/state`, `<prefix>/get`, Home
   Assistant discovery (`light`, a `battery_low` binary sensor, an
   `update` entity), tap series as events.
-- OTA: update check against the GitHub Pages manifest, dev upload at
-  `POST /api/v1/ota`, version `v1.0.<run>` baked into the image.
+- Release workflow: build with `APP_VERSION=v1.0.<run>`, publish
+  `efflorescence-app.bin` and `ota.json` (`{"version", "app"}`) on GitHub
+  Pages at the URL in `APP_UPDATE_URL`, plus the web flasher.
 - Battery: only "discharged" is detected, by the brownout reset reason;
   after it the lamp boots off with a `battery_low` flag, and repeated
   brownouts end in deep sleep until a touch.

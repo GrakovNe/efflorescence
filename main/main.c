@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: MIT
  * Copyright (c) 2026 GrakovNe
  */
+#include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_system.h"
@@ -9,6 +10,7 @@
 #include "appconf.h"
 #include "lamp.h"
 #include "mdns.h"
+#include "ota.h"
 #include "reset.h"
 #include "settings.h"
 #include "time_mgr.h"
@@ -17,10 +19,6 @@
 #include "wifi_mgr.h"
 
 static const char *TAG = "main";
-
-#ifndef APP_VER
-#define APP_VER "dev"
-#endif
 
 static appconf_t s_cfg;
 
@@ -48,7 +46,8 @@ static void mdns_start(const appconf_t *cfg)
 void app_main(void)
 {
     ESP_LOGI(TAG, "Efflorescence firmware %s (idf %s, built %s %s)",
-             APP_VER, esp_get_idf_version(), __DATE__, __TIME__);
+             esp_app_get_description()->version, esp_get_idf_version(),
+             __DATE__, __TIME__);
 
     reset_early_init();
     settings_nvs_init();
@@ -75,4 +74,5 @@ void app_main(void)
     web_server_start(cfg, device_id);
     time_mgr_start(cfg);
     mdns_start(cfg);
+    ota_start(cfg);
 }

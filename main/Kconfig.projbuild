@@ -34,4 +34,8 @@ menu "Efflorescence"
         range 0 500
         default 10
 
+    config APP_UPDATE_URL
+        string "Update manifest URL"
+        default "https://grakovne.github.io/efflorescence/ota.json"
+
 endmenu

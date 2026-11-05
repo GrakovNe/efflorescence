@@ -4,7 +4,7 @@ APPCONF := ../../components/appconf
 CJSON   := $(HOME)/esp/esp-idf/components/json/cJSON
 MAIN    := ../../main
 TESTS   := test_dimmer test_lamp_core test_gesture test_appconf \
-           test_config_merge test_light_cmd
+           test_config_merge test_light_cmd test_ota_logic
 
 .PHONY: test clean
 
@@ -30,6 +30,10 @@ test_config_merge: test_config_merge.c tinytest.h $(MAIN)/config_merge.c $(MAIN)
 test_light_cmd: test_light_cmd.c tinytest.h $(MAIN)/light_cmd.c $(MAIN)/light_cmd.h
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -I$(MAIN) -I$(CJSON) -o $@ \
 	    test_light_cmd.c $(MAIN)/light_cmd.c $(CJSON)/cJSON.c -lm
+
+test_ota_logic: test_ota_logic.c tinytest.h $(MAIN)/ota_logic.c $(MAIN)/ota_logic.h
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -I$(MAIN) -I$(CJSON) -o $@ \
+	    test_ota_logic.c $(MAIN)/ota_logic.c $(CJSON)/cJSON.c -lm
 
 clean:
 	rm -f $(TESTS)
