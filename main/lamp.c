@@ -38,6 +38,7 @@ static struct {
     TaskHandle_t task;
     lamp_core_t core;
 
+    uint16_t floor;
     uint32_t duty;
     uint32_t freq_hz;
     int32_t raw_duty;      /* < 0: no override */
@@ -111,7 +112,7 @@ static void lamp_task(void *arg)
         lamp_core_tick(&ctx.core, now);
         uint32_t duty = ctx.raw_duty >= 0
             ? (uint32_t)ctx.raw_duty
-            : dimmer_duty(lamp_core_output(&ctx.core, now), DUTY_MIN, DUTY_MAX);
+            : dimmer_duty(lamp_core_output(&ctx.core, now), DUTY_MAX);
         bool busy = lamp_core_busy(&ctx.core);
         /* The PWM clock stops in light sleep: stay awake while the LED
          * shows anything, and let go only once it is dark. */
@@ -286,7 +287,9 @@ void lamp_start(appconf_t *cfg)
     if (battery_boot_dark()) {
         on = false;
     }
-    lamp_core_init(&ctx.core, on, brightness);
+    /* The floor is known as a duty, the lamp thinks in lightness. */
+    ctx.floor = dimmer_level_for_duty(DUTY_MIN, DUTY_MAX);
+    lamp_core_init(&ctx.core, on, brightness, ctx.floor);
     ctx.saved_seq = ctx.core.seq;
     ctx.seen_seq = ctx.core.seq;
     ctx.told_seq = ctx.core.seq;
@@ -329,9 +332,10 @@ void lamp_start(appconf_t *cfg)
     ESP_ERROR_CHECK(gpio_sleep_sel_dis(CONFIG_APP_LED_PWM_GPIO));
 
     ESP_LOGI(TAG, "pwm gpio %d, %d Hz, %d bit, duty %" PRIu32 "..%" PRIu32
-             "; state: %s, %u%%, soft %s",
+             " (lightness floor %u%%); state: %s, %u%%, soft %s",
              CONFIG_APP_LED_PWM_GPIO, CONFIG_APP_PWM_FREQ_HZ,
              CONFIG_APP_PWM_BITS, (uint32_t)DUTY_MIN, (uint32_t)DUTY_MAX,
+             (unsigned)(ctx.floor * 100u / LAMP_LEVEL_MAX),
              on ? "on" : "off", (unsigned)ctx.core.brightness,
              cfg->soft_switch ? "on" : "off");
 

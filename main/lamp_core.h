@@ -20,6 +20,9 @@ extern "C" {
 
 #define LAMP_RAMP_MS 3000 /* a held finger sweeps the whole range in this time */
 #define LAMP_SOFT_MS 700  /* soft on/off */
+/* Below the floor the LED flickers, so the lamp never rests there and a
+ * fade crosses that stretch in at most this long. */
+#define LAMP_TRANSIT_MS 80
 
 typedef enum {
     LAMP_SIGNAL_NONE,
@@ -30,10 +33,12 @@ typedef enum {
 typedef struct {
     bool     on;         /* what a tap toggles; false while fading out */
     uint8_t  brightness; /* percent, the level "on" settles at */
-    uint16_t level;      /* what the LED shows now, 0 = dark */
+    uint16_t level;      /* the lightness the LED shows now, 0 = dark */
+    uint16_t floor;      /* the dimmest steady level: brightness 1 */
     uint32_t seq;        /* bumped when on or brightness changes */
 
     bool     fading;
+    bool     fade_ease;
     uint16_t fade_from;
     uint16_t fade_to;
     int64_t  fade_start_ms;
@@ -48,13 +53,17 @@ typedef struct {
     int64_t  signal_start_ms;
 } lamp_core_t;
 
-uint16_t lamp_pct_to_level(uint8_t pct);
-uint8_t lamp_level_to_pct(uint16_t level);
+/* Brightness 1..100 spans floor..LAMP_LEVEL_MAX evenly in lightness. */
+uint16_t lamp_pct_to_level(uint8_t pct, uint16_t floor);
+uint8_t lamp_level_to_pct(uint16_t level, uint16_t floor);
 
-void lamp_core_init(lamp_core_t *c, bool on, uint8_t brightness);
+void lamp_core_init(lamp_core_t *c, bool on, uint8_t brightness,
+                    uint16_t floor);
 
 /* brightness 0 keeps the current one. transition_ms is the time for the
- * whole move from the present level, 0 for a jump. */
+ * whole move from the present level, 0 for a jump. Turning on or off
+ * follows an S-curve; a change of brightness while on is a straight
+ * line. */
 void lamp_core_set(lamp_core_t *c, int64_t now_ms, bool on, uint8_t brightness,
                    uint32_t transition_ms);
 

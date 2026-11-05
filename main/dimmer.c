@@ -11,26 +11,32 @@
 #define CUBE_OFFSET  (16u * DIMMER_LEVEL_MAX)
 #define CUBE_DEN     (116u * DIMMER_LEVEL_MAX)
 
-uint32_t dimmer_duty(uint16_t level, uint32_t duty_min, uint32_t duty_max)
+uint32_t dimmer_duty(uint16_t level, uint32_t duty_max)
 {
-    if (level == 0) {
-        return 0;
-    }
-    if (duty_max <= duty_min) {
-        return duty_max;
-    }
-    uint64_t span = duty_max - duty_min;
-    uint64_t part;
+    uint64_t span = duty_max;
+    uint64_t duty;
     if (level <= LINEAR_TOP) {
-        part = (span * level + LINEAR_DEN / 2) / LINEAR_DEN;
+        duty = (span * level + LINEAR_DEN / 2) / LINEAR_DEN;
     } else {
         uint64_t r = 100ull * level + CUBE_OFFSET;
         uint64_t r2 = r * r / CUBE_DEN;
         uint64_t r3 = r2 * r / CUBE_DEN;
-        part = (span * r3 + CUBE_DEN / 2) / CUBE_DEN;
+        duty = (span * r3 + CUBE_DEN / 2) / CUBE_DEN;
     }
-    if (part > span) {
-        part = span;
+    return duty > span ? (uint32_t)span : (uint32_t)duty;
+}
+
+uint16_t dimmer_level_for_duty(uint32_t duty, uint32_t duty_max)
+{
+    uint32_t lo = 0;
+    uint32_t hi = DIMMER_LEVEL_MAX;
+    while (lo < hi) {
+        uint32_t mid = (lo + hi) / 2;
+        if (dimmer_duty((uint16_t)mid, duty_max) >= duty) {
+            hi = mid;
+        } else {
+            lo = mid + 1;
+        }
     }
-    return duty_min + (uint32_t)part;
+    return (uint16_t)lo;
 }

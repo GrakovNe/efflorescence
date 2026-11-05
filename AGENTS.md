@@ -101,8 +101,9 @@ locks and the time spent in each mode since boot. Take it twice and
 subtract. Measured on 2026-11-06 with the lamp off on the home network
 (beacon every 102 ms, DTIM 1): 87 % in light sleep, the radio awake
 11 %, 12.8 ms per beacon. Listening to every third beacon
-(`APP_WIFI_LISTEN_INTERVAL=3`) gave 91 % and 7 %; the internal
-17.5 MHz/256 sleep clock changed nothing.
+(`APP_WIFI_LISTEN_INTERVAL=3`) gave 91 % and 7 %, and the owner chose
+it: it is the default. The internal 17.5 MHz/256 sleep clock changed
+nothing.
 
 Battery handling cannot be provoked on USB power, so it is simulated:
 
@@ -159,10 +160,17 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
   (brightness curve), `lamp_core` (state, fades, hold ramp, signals),
   `gesture` (taps, holds, series, the reset sequence). `lamp.c` and
   `touch.c` only move it onto LEDC, GPIO, NVS and tasks.
-- Brightness is a percent 1..100 of *perceived* light. `lamp_core` works
-  in levels 0..65535 on the same perceptual scale; only `dimmer_duty()`
-  turns a level into PWM duty (CIE 1931 lightness). Level 0 is off,
-  every other level maps into `DUTY_MIN..DUTY_MAX`.
+- `lamp_core` works in levels 0..65535 of perceived lightness (CIE L*,
+  65535 = 100); only `dimmer_duty()` turns a level into PWM duty. Level
+  0 is dark. Brightness 1..100 % spans `floor`..65535 evenly, where the
+  floor is the level whose duty is `APP_LED_DUTY_MIN_PERMILLE`. Below
+  the floor the light flickers, so the lamp never rests there.
+- Turning on or off follows an S-curve (smoothstep) between the floor
+  and the brightness; the stretch between dark and the floor is crossed
+  in a straight line in at most 80 ms (`LAMP_TRANSIT_MS`), at the start
+  of a fade in and at the end of a fade out. A 30-minute sunrise is the
+  same shape, so it starts at the floor after a blink. A change of
+  brightness while on is a straight line.
 - Only the lamp task writes LEDC. Everything else goes through the
   `lamp_*()` calls, which take the lock and wake the task.
 - One command format for HTTP and (later) MQTT, parsed by the pure
@@ -273,9 +281,9 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
   been seen with a real empty battery, only with the bench simulation.
 - PWM is 1250 Hz, 14 bit. The optocoupler is the slow part: a PC817 into
   roughly 10 kΩ has 55-70 µs edges (Sharp datasheet, Fig. 13). Raising
-  the frequency shortens the usable range from the bottom. The lowest
-  usable duty (`APP_LED_DUTY_MIN_PERMILLE`, 1 % now) is a guess that has
-  not been measured on this lamp.
+  the frequency shortens the usable range from the bottom. The floor,
+  2.9 % duty (23 µs pulses), was found by eye by the owner: it is what
+  brightness 15 % was on the scale used before 2026-11-06.
 
 ## Written, never run
 

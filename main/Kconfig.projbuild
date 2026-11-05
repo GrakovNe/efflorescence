@@ -30,18 +30,26 @@ menu "Efflorescence"
         default 14
 
     config APP_LED_DUTY_MIN_PERMILLE
-        int "Lowest PWM duty the LED driver still passes, per mille"
+        int "PWM duty of the dimmest steady light, per mille"
         range 0 500
-        default 10
+        default 29
+        help
+            Brightness 1 % is this duty. Below it the pulses are shorter
+            than the optocoupler's edges and the light flickers; a fade
+            crosses that stretch quickly and the lamp never rests there.
+            29 is what the owner found by eye to be the lowest steady
+            light on this lamp at 1250 Hz.
 
     config APP_WIFI_LISTEN_INTERVAL
         int "Listen to every Nth beacon of the access point"
         range 1 10
-        default 1
+        default 3
         help
             1 hears every beacon and with it every broadcast: the lamp
-            answers ARP and mDNS at once. More saves power in proportion
-            and makes the lamp slow or deaf to those.
+            answers ARP and mDNS at once. More saves power and makes the
+            lamp slower, and now and then deaf, to those. Measured with
+            the lamp off: the radio is awake 11 % of the time at 1 and
+            7 % at 3.
 
     config APP_UPDATE_URL
         string "Update manifest URL"

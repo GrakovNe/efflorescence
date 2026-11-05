@@ -10,12 +10,16 @@
 extern "C" {
 #endif
 
-/* Perceptual brightness, full scale. */
+/* Perceived lightness, full scale: CIE L* = 100. */
 #define DIMMER_LEVEL_MAX 65535u
 
-/* PWM duty for a perceptual level, CIE 1931 lightness curve. Level 0 is
- * off (duty 0); every other level lands in duty_min..duty_max. */
-uint32_t dimmer_duty(uint16_t level, uint32_t duty_min, uint32_t duty_max);
+/* PWM duty that gives a perceived lightness, by the CIE 1931 curve.
+ * Level 0 is duty 0. */
+uint32_t dimmer_duty(uint16_t level, uint32_t duty_max);
+
+/* The lowest level whose duty is at least `duty`: where a floor given
+ * as a duty sits on the lightness scale. */
+uint16_t dimmer_level_for_duty(uint32_t duty, uint32_t duty_max);
 
 #ifdef __cplusplus
 }
