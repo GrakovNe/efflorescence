@@ -104,7 +104,8 @@ bool light_cmd_parse_text(const char *data, size_t len, light_cmd_t *cmd,
     return ok;
 }
 
-cJSON *light_state_json(bool on, uint8_t brightness, bool soft)
+cJSON *light_state_json(bool on, uint8_t brightness, bool soft,
+                        bool battery_low)
 {
     cJSON *o = cJSON_CreateObject();
     if (o == NULL) {
@@ -112,7 +113,8 @@ cJSON *light_state_json(bool on, uint8_t brightness, bool soft)
     }
     if (cJSON_AddStringToObject(o, "state", on ? "ON" : "OFF") == NULL ||
         cJSON_AddNumberToObject(o, "brightness", brightness) == NULL ||
-        cJSON_AddBoolToObject(o, "soft", soft) == NULL) {
+        cJSON_AddBoolToObject(o, "soft", soft) == NULL ||
+        cJSON_AddBoolToObject(o, "battery_low", battery_low) == NULL) {
         cJSON_Delete(o);
         return NULL;
     }

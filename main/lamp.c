@@ -16,7 +16,9 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 
+#include "battery.h"
 #include "dimmer.h"
+#include "power.h"
 #include "settings.h"
 
 static const char *TAG = "lamp";
@@ -110,8 +112,17 @@ static void lamp_task(void *arg)
         uint32_t duty = ctx.raw_duty >= 0
             ? (uint32_t)ctx.raw_duty
             : dimmer_duty(lamp_core_output(&ctx.core, now), DUTY_MIN, DUTY_MAX);
-        write_pwm(duty, ctx.want_freq_hz);
         bool busy = lamp_core_busy(&ctx.core);
+        /* The PWM clock stops in light sleep: stay awake while the LED
+         * shows anything, and let go only once it is dark. */
+        bool lit = duty != 0 || busy;
+        if (lit) {
+            power_led_active(true);
+        }
+        write_pwm(duty, ctx.want_freq_hz);
+        if (!lit) {
+            power_led_active(false);
+        }
 
         /* Flash is written once the state has been quiet for a while, not
          * on every step of a slider or a held finger. */
@@ -272,6 +283,9 @@ void lamp_start(appconf_t *cfg)
     bool on = true;
     uint8_t brightness = LAMP_PCT_DEFAULT;
     settings_load_state(&on, &brightness);
+    if (battery_boot_dark()) {
+        on = false;
+    }
     lamp_core_init(&ctx.core, on, brightness);
     ctx.saved_seq = ctx.core.seq;
     ctx.seen_seq = ctx.core.seq;
@@ -291,6 +305,8 @@ void lamp_start(appconf_t *cfg)
         };
         ESP_ERROR_CHECK(gpio_config(&io));
         ESP_ERROR_CHECK(gpio_set_level(CONFIG_APP_LED_GND_GPIO, 0));
+        /* Light sleep would otherwise float the pin. */
+        ESP_ERROR_CHECK(gpio_sleep_sel_dis(CONFIG_APP_LED_GND_GPIO));
     }
 
     ledc_timer_config_t timer = {
@@ -310,6 +326,7 @@ void lamp_start(appconf_t *cfg)
         .hpoint = 0,
     };
     ESP_ERROR_CHECK(ledc_channel_config(&channel));
+    ESP_ERROR_CHECK(gpio_sleep_sel_dis(CONFIG_APP_LED_PWM_GPIO));
 
     ESP_LOGI(TAG, "pwm gpio %d, %d Hz, %d bit, duty %" PRIu32 "..%" PRIu32
              "; state: %s, %u%%, soft %s",

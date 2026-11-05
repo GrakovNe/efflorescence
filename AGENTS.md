@@ -65,6 +65,11 @@ curl -d '{"url":"http://<this machine's IP>:8765/ota.json"}' http://192.168.1.91
 curl -X POST http://192.168.1.91/api/v1/ota/install
 ```
 
+A release build by hand, to rehearse what the workflow does:
+`APP_VERSION=v1.0.1 idf.py -B build-rel -DSDKCONFIG=build-rel/sdkconfig
+build`. Do not leave a lamp on such a build: it would think it already
+has the real `v1.0.1`.
+
 Rollback bench build (its own build directory, because the CMake cache
 keeps `-D` flags): an image that never confirms itself. Upload it and
 the lamp comes back on the previous image 180 s later, or at once after
@@ -85,6 +90,27 @@ mosquitto_sub -h 192.168.1.102 -v -t 'efflorescence/#' \
 mosquitto_pub -h 192.168.1.102 -t efflorescence/c6e0/set -m TOGGLE
 mosquitto_pub -h 192.168.1.102 -t efflorescence/c6e0/set \
   -m '{"state":"ON","brightness":40,"transition":2}'
+```
+
+Logs without the console, which the case hides and light sleep kills:
+`curl http://192.168.1.91/api/v1/log` gives the last 8 KB.
+
+Where the time goes (there is no ammeter on the bench):
+`curl http://192.168.1.91/api/v1/debug/pm` prints the power management
+locks and the time spent in each mode since boot. Take it twice and
+subtract. Measured on 2026-11-06 with the lamp off on the home network
+(beacon every 102 ms, DTIM 1): 87 % in light sleep, the radio awake
+11 %, 12.8 ms per beacon. Listening to every third beacon
+(`APP_WIFI_LISTEN_INTERVAL=3`) gave 91 % and 7 %; the internal
+17.5 MHz/256 sleep clock changed nothing.
+
+Battery handling cannot be provoked on USB power, so it is simulated:
+
+```bash
+curl -d '{"simulate":"brownout"}' http://192.168.1.91/api/v1/debug/battery
+curl -d '{"simulate":"clear"}'    http://192.168.1.91/api/v1/debug/battery
+# deep sleep until the sensor is touched; the lamp leaves the network
+curl -d '{"simulate":"sleep"}'    http://192.168.1.91/api/v1/debug/battery
 ```
 
 Console capture (opening the port resets the board, so every capture
@@ -223,20 +249,42 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
   clock counts as set after an NTP sync or when the RTC kept it across a
   restart (seen in the boot log: "clock kept across the restart"); after
   a power loss the schedule waits for NTP.
+- Automatic light sleep is on. The lamp task holds a NO_LIGHT_SLEEP lock
+  (`power_led_active`) while the LED shows anything, because sleep stops
+  the PWM clock; with the LED dark the chip dozes between beacons and
+  Wi-Fi stays associated. Nothing in the firmware may poll on a short
+  period: every task waits on an event or a long timeout.
+- Light sleep floats every pin it is not told to keep. The five pins in
+  use (sensor power, sensor output, LED driver ground and PWM) are
+  exempted with `gpio_sleep_sel_dis()`; a new pin needs the same.
+- The sensor interrupt is level-triggered (edges are not seen in light
+  sleep) and is also the wake-up source. The ISR turns it off; the touch
+  task turns it back on once the gesture is over.
+- While the lamp is off the USB console is gone, and so is the USB port
+  as far as esptool is concerned: turn the lamp on, or hold BOOT while
+  resetting, before flashing over USB.
+- The battery cannot be measured. A brownout reset (threshold 2.92 V on
+  the 3.3 V rail) is the only sign of an empty one: the lamp then starts
+  dark with `battery_low` set, refuses firmware updates, and after three
+  brownouts in a row goes into deep sleep until the sensor is touched.
+  The flag lives in RTC memory, so it survives those resets and is gone
+  when the supply is; it clears itself once the LED has been on for five
+  minutes. The rules are the pure `battery_logic.c`. None of this has
+  been seen with a real empty battery, only with the bench simulation.
 - PWM is 1250 Hz, 14 bit. The optocoupler is the slow part: a PC817 into
   roughly 10 kΩ has 55-70 µs edges (Sharp datasheet, Fig. 13). Raising
   the frequency shortens the usable range from the bottom. The lowest
   usable duty (`APP_LED_DUTY_MIN_PERMILLE`, 1 % now) is a guess that has
   not been measured on this lamp.
 
-## Agreed with the owner, not built yet
+## Written, never run
 
-- Power: auto light sleep while the lamp is off and Wi-Fi stays
-  associated; no sleep while the LED is on.
-- Release workflow: build with `APP_VERSION=v1.0.<run>`, publish
-  `efflorescence-app.bin` and `ota.json` (`{"version", "app"}`) on GitHub
-  Pages at the URL in `APP_UPDATE_URL`, plus the web flasher.
-- Battery: only "discharged" is detected, by the brownout reset reason;
-  after it the lamp boots off with a `battery_low` flag, and repeated
-  brownouts end in deep sleep until a touch.
-- Logs over the network (ring buffer and `/api/v1/log`).
+- `.github/workflows/release.yml`: builds with `APP_VERSION=v1.0.<run>`
+  (or the pushed `v*` tag), merges the full image, and publishes
+  `efflorescence-full.bin`, `efflorescence-app.bin`, the ESP Web Tools
+  `manifest.json` and the `ota.json` the lamps read to GitHub Pages at
+  the URL in `APP_UPDATE_URL`. The repository `GrakovNe/efflorescence`
+  does not exist yet; once it does, Pages has to be set to "GitHub
+  Actions". What it does was rehearsed by hand on 2026-11-06: a build
+  with `APP_VERSION=v1.0.1`, a manifest served from this machine, and
+  the lamp updating itself from it.

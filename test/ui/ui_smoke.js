@@ -79,7 +79,7 @@ function check(cond, name) {
 
 (async () => {
   const now = Math.floor(Date.now() / 1000);
-  const light = { state: "ON", brightness: 60, soft: true };
+  const light = { state: "ON", brightness: 60, soft: true, battery_low: false };
   const status = {
     time: { timestamp: now, synced: true, tz: "MSK-3", local: "2026-11-05T23:41:07", weekday: 4, uptime_s: 5231 },
     device: {
@@ -107,6 +107,9 @@ function check(cond, name) {
   check(m.els.fw.textContent.includes("abc1234"), "main: firmware footer");
   check(m.doc.title === "Bedside", "main: title is the device name");
   check(m.els.devname.textContent === "Bedside", "main: header is the device name");
+  check(!m.els.state.innerHTML.includes("battery"), "main: no battery note when it is fine");
+  const ml = await runPage(path.join(WEB, "main.html"), { "/api/v1/light": { ...light, battery_low: true }, "/api/v1/status": status });
+  check(ml.els.state.innerHTML.includes('class="low">battery low'), "main: low battery called out");
 
   const mo = await runPage(path.join(WEB, "main.html"), {
     "/api/v1/light": { state: "OFF", brightness: 35, soft: true }, "/api/v1/status": status,
@@ -161,6 +164,7 @@ function check(cond, name) {
   check(i.els["s-light"].className === "state ok", "info: light on is green");
   check(i.els["v-bri"].textContent === "60 %", "info: brightness row");
   check(i.els["v-soft"].textContent === "On", "info: soft row");
+  check(i.els["v-bat"].textContent === "Not reported low" && i.els["v-bat"].className === "", "info: battery row");
   check(i.els["v-pwm"].textContent === "1250 Hz · 14 bit", "info: pwm row");
   check(i.els["v-duty"].textContent === "30.00 % · 4915 of 16383", "info: duty row");
   check(i.els["s-wifi"].textContent === "Connected", "info: wifi state");
@@ -181,7 +185,7 @@ function check(cond, name) {
   check(i.els["v-slot"].textContent === "ota_1", "info: slot");
 
   const st2 = { ...status, mode: "fallback",
-                light: { state: "OFF", brightness: 60, soft: false,
+                light: { state: "OFF", brightness: 60, soft: false, battery_low: true,
                          pwm: { freq_hz: 400, bits: 14, duty: 200, duty_min: 163, duty_max: 16383, raw: true } },
                 wifi: { ...status.wifi, connected: false, rssi: null, channel: null, ip: null, gateway: null },
                 mqtt: { enabled: false, connected: false, last_publish: null, errors: 0 },
@@ -190,6 +194,7 @@ function check(cond, name) {
   check(i2.els["s-light"].textContent === "Off", "info: light off");
   check(i2.els["s-light"].className === "state", "info: light off is neutral");
   check(i2.els["v-soft"].textContent === "Off", "info: soft off");
+  check(i2.els["v-bat"].textContent === "Low" && i2.els["v-bat"].className === "bad", "info: low battery is red");
   check(i2.els["v-duty"].textContent.endsWith("bench override"), "info: bench override flagged");
   check(i2.els["s-wifi"].textContent === "No connection", "info: lost wifi");
   check(i2.els["s-wifi"].className === "state err", "info: lost wifi is red");

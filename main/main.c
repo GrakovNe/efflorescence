@@ -8,10 +8,13 @@
 #include "esp_system.h"
 
 #include "appconf.h"
+#include "battery.h"
 #include "lamp.h"
+#include "logbuf.h"
 #include "mdns.h"
 #include "mqtt_mgr.h"
 #include "ota.h"
+#include "power.h"
 #include "reset.h"
 #include "sched_mgr.h"
 #include "settings.h"
@@ -47,10 +50,12 @@ static void mdns_start(const appconf_t *cfg)
 
 void app_main(void)
 {
+    logbuf_start();
     ESP_LOGI(TAG, "Efflorescence firmware %s (idf %s, built %s %s)",
              esp_app_get_description()->version, esp_get_idf_version(),
              __DATE__, __TIME__);
 
+    battery_early_init();
     reset_early_init();
     settings_nvs_init();
 
@@ -70,8 +75,10 @@ void app_main(void)
 
     /* The light and the sensor come first: the lamp works without a
      * network. */
+    power_start();
     lamp_start(cfg);
     touch_start();
+    battery_start();
 
     wifi_mgr_start(cfg, device_id);
     web_server_start(cfg, device_id);

@@ -27,6 +27,7 @@ typedef enum {
     HA_SOFT_SWITCH,
     HA_TAPS,
     HA_UPDATE,
+    HA_BATTERY,
     HA_ENTITY_COUNT,
 } ha_entity_t;
 

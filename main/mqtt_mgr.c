@@ -19,6 +19,7 @@
 #include "freertos/task.h"
 #include "mqtt_client.h"
 
+#include "battery.h"
 #include "ha_discovery.h"
 #include "lamp.h"
 #include "light_cmd.h"
@@ -78,6 +79,7 @@ static struct {
     bool cleanup_done;
     uint32_t state_seq;
     bool state_soft;
+    bool state_low;
     bool state_sent;
     int64_t state_at_ms;
     char update_sent[160];
@@ -144,13 +146,15 @@ static void publish_state(void)
 {
     lamp_status_t l;
     lamp_get(&l);
-    cJSON *o = light_state_json(l.on, l.brightness, l.soft);
+    bool low = battery_low();
+    cJSON *o = light_state_json(l.on, l.brightness, l.soft, low);
     char *json = o != NULL ? cJSON_PrintUnformatted(o) : NULL;
     cJSON_Delete(o);
     if (json != NULL && publish(ctx.t_state, json, true)) {
         ctx.need_state = false;
         ctx.state_seq = l.seq;
         ctx.state_soft = l.soft;
+        ctx.state_low = low;
         ctx.state_sent = true;
         ctx.state_at_ms = now_ms();
     }
@@ -228,7 +232,7 @@ static void publish_task(void *arg)
         lamp_status_t l;
         lamp_get(&l);
         if (ctx.need_state || !ctx.state_sent || l.seq != ctx.state_seq ||
-            l.soft != ctx.state_soft) {
+            l.soft != ctx.state_soft || battery_low() != ctx.state_low) {
             int64_t wait = ctx.state_at_ms + STATE_GAP_MS - now_ms();
             if (ctx.need_state || wait <= 0) {
                 publish_state();

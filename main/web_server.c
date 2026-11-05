@@ -19,14 +19,19 @@
 #include "esp_mac.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "sdkconfig.h"
 
+#include "battery.h"
 #include "captive.h"
 #include "config_merge.h"
 #include "lamp.h"
 #include "light_cmd.h"
+#include "logbuf.h"
 #include "mqtt_mgr.h"
 #include "ota.h"
+#include "power.h"
 #include "reset.h"
 #include "sched_mgr.h"
 #include "settings.h"
@@ -193,7 +198,7 @@ static esp_err_t send_light(httpd_req_t *req)
 {
     lamp_status_t l;
     lamp_get(&l);
-    cJSON *o = light_state_json(l.on, l.brightness, l.soft);
+    cJSON *o = light_state_json(l.on, l.brightness, l.soft, battery_low());
     if (o == NULL) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, NULL);
     }
@@ -330,7 +335,7 @@ static esp_err_t handler_status(httpd_req_t *req)
     cJSON *root = cJSON_CreateObject();
     cJSON *tm = cJSON_AddObjectToObject(root, "time");
     cJSON *dev = cJSON_AddObjectToObject(root, "device");
-    cJSON *light = light_state_json(l.on, l.brightness, l.soft);
+    cJSON *light = light_state_json(l.on, l.brightness, l.soft, battery_low());
     cJSON *pwm = cJSON_CreateObject();
     cJSON *wifi = cJSON_AddObjectToObject(root, "wifi");
     cJSON *mqtt = cJSON_AddObjectToObject(root, "mqtt");
@@ -695,6 +700,63 @@ static esp_err_t handler_ota_upload(httpd_req_t *req)
     return r;
 }
 
+static esp_err_t send_text(httpd_req_t *req, size_t (*fill)(char *, size_t),
+                           size_t cap)
+{
+    char *buf = malloc(cap);
+    if (buf == NULL) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, NULL);
+    }
+    size_t n = fill(buf, cap);
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    esp_err_t err = httpd_resp_send(req, buf, (ssize_t)n);
+    free(buf);
+    return err;
+}
+
+/* The last few kilobytes of the console. */
+static esp_err_t handler_log(httpd_req_t *req)
+{
+    return send_text(req, logbuf_read, LOGBUF_SIZE);
+}
+
+/* Bench tool: power management locks and the time spent asleep. */
+static esp_err_t handler_debug_pm(httpd_req_t *req)
+{
+    return send_text(req, power_dump, 2048);
+}
+
+/* Bench tool: {"simulate": "brownout" | "sleep" | "clear"}. */
+static esp_err_t handler_debug_battery(httpd_req_t *req)
+{
+    char body[CMD_BODY_MAX];
+    if (read_body(req, body, sizeof body) < 0) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, NULL);
+    }
+    cJSON *root = cJSON_Parse(body);
+    const cJSON *what = cJSON_GetObjectItemCaseSensitive(root, "simulate");
+    char word[16] = "";
+    if (cJSON_IsString(what)) {
+        strlcpy(word, what->valuestring, sizeof word);
+    }
+    cJSON_Delete(root);
+    bool restarts = strcmp(word, "brownout") == 0 || strcmp(word, "sleep") == 0;
+    if (!restarts && strcmp(word, "clear") != 0) {
+        return send_json_err(req, "\"simulate\" must be \"brownout\", "
+                                  "\"sleep\" or \"clear\"");
+    }
+    ESP_LOGW(TAG, "bench battery: %s", word);
+    esp_err_t r = send_ok(req);
+    if (restarts) {
+        /* Let the answer leave first. */
+        vTaskDelay(pdMS_TO_TICKS(300));
+    }
+    battery_simulate(word);
+    return r;
+}
+
 /* Bench tool: {"duty": 0..duty_max, "freq_hz": n} drives the LED raw,
  * {"duty": null} hands it back to the lamp. */
 static esp_err_t handler_debug_pwm(httpd_req_t *req)
@@ -775,7 +837,7 @@ void web_server_start(const appconf_t *cfg, const char device_id[5])
     snprintf(s_mac_str, sizeof s_mac_str, MACSTR, MAC2STR(mac));
 
     httpd_config_t hc = HTTPD_DEFAULT_CONFIG();
-    hc.max_uri_handlers = 40;
+    hc.max_uri_handlers = 48;
     hc.stack_size = 8192;
     hc.lru_purge_enable = true;
     hc.server_port = 80;
@@ -810,6 +872,10 @@ void web_server_start(const appconf_t *cfg, const char device_id[5])
         { .uri = "/api/v1/ota/check", .method = HTTP_OPTIONS, .handler = handler_options },
         { .uri = "/api/v1/ota/install", .method = HTTP_POST, .handler = handler_ota_install },
         { .uri = "/api/v1/ota/install", .method = HTTP_OPTIONS, .handler = handler_options },
+        { .uri = "/api/v1/log", .method = HTTP_GET, .handler = handler_log },
+        { .uri = "/api/v1/debug/pm", .method = HTTP_GET, .handler = handler_debug_pm },
+        { .uri = "/api/v1/debug/battery", .method = HTTP_POST, .handler = handler_debug_battery },
+        { .uri = "/api/v1/debug/battery", .method = HTTP_OPTIONS, .handler = handler_options },
         { .uri = "/api/v1/debug/pwm", .method = HTTP_POST, .handler = handler_debug_pwm },
         { .uri = "/api/v1/debug/pwm", .method = HTTP_OPTIONS, .handler = handler_options },
     };

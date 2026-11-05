@@ -26,6 +26,7 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 
+#include "battery.h"
 #include "lamp.h"
 #include "web_server.h"
 #include "wifi_mgr.h"
@@ -313,8 +314,25 @@ bool ota_check(const char *url)
     return submit(CMD_CHECK, OTA_CHECKING, url);
 }
 
+/* Writing an image with the supply about to collapse is asking for it. */
+static bool battery_refuses(void)
+{
+    if (!battery_low()) {
+        return false;
+    }
+    xSemaphoreTake(ctx.lock, portMAX_DELAY);
+    if (ctx.phase == OTA_IDLE) {
+        strlcpy(ctx.error, "the battery is low", sizeof ctx.error);
+    }
+    xSemaphoreGive(ctx.lock);
+    return true;
+}
+
 bool ota_install(void)
 {
+    if (battery_refuses()) {
+        return false;
+    }
     char url[OTA_URL_MAX + 1];
     xSemaphoreTake(ctx.lock, portMAX_DELAY);
     strlcpy(url, ctx.manifest.url, sizeof url);
@@ -327,6 +345,9 @@ bool ota_install(void)
 
 esp_err_t ota_upload_begin(size_t size)
 {
+    if (battery_refuses()) {
+        return ESP_ERR_INVALID_STATE;
+    }
     if (!claim(OTA_UPLOADING)) {
         return ESP_ERR_INVALID_STATE;
     }

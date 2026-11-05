@@ -7,6 +7,7 @@
 #include "driver/gpio.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -28,6 +29,9 @@ static TaskHandle_t s_task;
 static void IRAM_ATTR touch_isr(void *arg)
 {
     (void)arg;
+    /* Level-triggered, so it keeps firing while the sensor is high: off
+     * until the task has seen the gesture through. */
+    gpio_intr_disable(CONFIG_APP_TOUCH_IO_GPIO);
     BaseType_t woken = pdFALSE;
     vTaskNotifyGiveFromISR(s_task, &woken);
     if (woken == pdTRUE) {
@@ -90,6 +94,7 @@ static void touch_task(void *arg)
         if (gesture_active(&g)) {
             vTaskDelay(pdMS_TO_TICKS(SAMPLE_MS));
         } else {
+            gpio_intr_enable(CONFIG_APP_TOUCH_IO_GPIO);
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         }
         bool touched = gpio_get_level(CONFIG_APP_TOUCH_IO_GPIO) == 1;
@@ -116,6 +121,9 @@ static void power_pins(void)
         };
         ESP_ERROR_CHECK(gpio_config(&io));
         ESP_ERROR_CHECK(gpio_set_level(pins[i], levels[i]));
+        /* Light sleep would otherwise float the pin and cut the sensor's
+         * power. */
+        ESP_ERROR_CHECK(gpio_sleep_sel_dis(pins[i]));
     }
 }
 
@@ -128,9 +136,16 @@ void touch_start(void)
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_ENABLE,
-        .intr_type = GPIO_INTR_ANYEDGE,
+        /* Edges are not seen in light sleep; a level is, and it is also
+         * what wakes the chip. */
+        .intr_type = GPIO_INTR_HIGH_LEVEL,
     };
     ESP_ERROR_CHECK(gpio_config(&io));
+    ESP_ERROR_CHECK(gpio_sleep_sel_dis(CONFIG_APP_TOUCH_IO_GPIO));
+    ESP_ERROR_CHECK(gpio_wakeup_enable(CONFIG_APP_TOUCH_IO_GPIO,
+                                       GPIO_INTR_HIGH_LEVEL));
+    ESP_ERROR_CHECK(esp_sleep_enable_gpio_wakeup());
+    gpio_intr_disable(CONFIG_APP_TOUCH_IO_GPIO);
 
     BaseType_t ok = xTaskCreate(touch_task, "touch", 3072, NULL, 7, &s_task);
     configASSERT(ok == pdPASS);

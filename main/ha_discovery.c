@@ -17,6 +17,7 @@ static const struct {
     [HA_SOFT_SWITCH] = { "switch", "soft" },
     [HA_TAPS]        = { "event", "taps" },
     [HA_UPDATE]      = { "update", "firmware" },
+    [HA_BATTERY]     = { "binary_sensor", "battery" },
 };
 
 static const char *const TAP_TYPES[] = { "double", "triple", "quadruple", "many" };
@@ -93,6 +94,14 @@ char *ha_config_json(const ha_dev_t *d, ha_entity_t e)
         add_topic(root, "state_topic", d, "update");
         add_topic(root, "command_topic", d, "update/install");
         cJSON_AddStringToObject(root, "payload_install", "install");
+        break;
+    case HA_BATTERY:
+        cJSON_AddStringToObject(root, "name", "Battery");
+        cJSON_AddStringToObject(root, "device_class", "battery");
+        add_topic(root, "state_topic", d, "state");
+        cJSON_AddStringToObject(root, "value_template",
+                                "{{ 'ON' if value_json.battery_low else 'OFF' }}");
+        cJSON_AddStringToObject(root, "entity_category", "diagnostic");
         break;
     default:
         break;

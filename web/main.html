@@ -48,6 +48,7 @@ nav a.on { color:var(--text); border-bottom-color:var(--accent); }
 .d.err { color:var(--error); }
 .dot { width:8px; height:8px; border-radius:50%; background:var(--none); flex:none; }
 .dot.good { background:var(--good); }
+.d .low { color:var(--error); }
 
 input[type=range] { -webkit-appearance:none; appearance:none; display:block; width:100%; height:32px; margin:14px 0 0; padding:0;
                     background:transparent; cursor:pointer; touch-action:pan-y; }
@@ -116,7 +117,8 @@ function render(j) {
   const on = j.state === "ON";
   $("light").className = "light" + (on ? "" : " off");
   $("state").className = "d";
-  $("state").innerHTML = '<span class="dot' + (on ? " good" : "") + '"></span><span>' + (on ? "On" : "Off") + "</span>";
+  $("state").innerHTML = '<span class="dot' + (on ? " good" : "") + '"></span><span>' + (on ? "On" : "Off") + "</span>" +
+    (j.battery_low ? '<span>·</span><span class="low">battery low</span>' : "");
   $("toggle").textContent = on ? "Turn off" : "Turn on";
   $("toggle").className = "btn" + (on ? "" : " primary");
   $("toggle").disabled = false;

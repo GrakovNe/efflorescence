@@ -5,7 +5,7 @@ CJSON   := $(HOME)/esp/esp-idf/components/json/cJSON
 MAIN    := ../../main
 TESTS   := test_dimmer test_lamp_core test_gesture test_appconf \
            test_config_merge test_light_cmd test_ota_logic test_schedule \
-           test_ha_discovery
+           test_ha_discovery test_log_ring test_battery_logic
 
 .PHONY: test clean
 
@@ -43,6 +43,12 @@ test_schedule: test_schedule.c tinytest.h $(MAIN)/schedule.c $(MAIN)/schedule.h 
 test_ha_discovery: test_ha_discovery.c tinytest.h $(MAIN)/ha_discovery.c $(MAIN)/ha_discovery.h
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -I$(MAIN) -I$(CJSON) -o $@ \
 	    test_ha_discovery.c $(MAIN)/ha_discovery.c $(CJSON)/cJSON.c -lm
+
+test_log_ring: test_log_ring.c tinytest.h $(MAIN)/log_ring.c $(MAIN)/log_ring.h
+	$(CC) $(CFLAGS) -I$(MAIN) -o $@ test_log_ring.c $(MAIN)/log_ring.c
+
+test_battery_logic: test_battery_logic.c tinytest.h $(MAIN)/battery_logic.c $(MAIN)/battery_logic.h
+	$(CC) $(CFLAGS) -I$(MAIN) -o $@ test_battery_logic.c $(MAIN)/battery_logic.c
 
 clean:
 	rm -f $(TESTS)

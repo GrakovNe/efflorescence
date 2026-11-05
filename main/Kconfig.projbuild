@@ -34,6 +34,15 @@ menu "Efflorescence"
         range 0 500
         default 10
 
+    config APP_WIFI_LISTEN_INTERVAL
+        int "Listen to every Nth beacon of the access point"
+        range 1 10
+        default 1
+        help
+            1 hears every beacon and with it every broadcast: the lamp
+            answers ARP and mDNS at once. More saves power in proportion
+            and makes the lamp slow or deaf to those.
+
     config APP_UPDATE_URL
         string "Update manifest URL"
         default "https://grakovne.github.io/efflorescence/ota.json"

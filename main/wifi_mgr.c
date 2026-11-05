@@ -17,6 +17,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sdkconfig.h"
 
 #include "captive.h"
 
@@ -214,6 +215,7 @@ static void sta_connect(void)
     wifi_config_t st = { 0 };
     strlcpy((char *)st.sta.ssid, s_mgr.ssid, sizeof st.sta.ssid);
     strlcpy((char *)st.sta.password, s_mgr.password, sizeof st.sta.password);
+    st.sta.listen_interval = CONFIG_APP_WIFI_LISTEN_INTERVAL;
     st.sta.threshold.authmode =
         s_mgr.password[0] != '\0' ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
 
@@ -475,6 +477,10 @@ void wifi_mgr_start(const appconf_t *cfg, const char device_id[5])
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
     ESP_ERROR_CHECK(esp_wifi_start());
+    /* The radio sleeps between beacons and stays associated. */
+    ESP_ERROR_CHECK(esp_wifi_set_ps(CONFIG_APP_WIFI_LISTEN_INTERVAL > 1
+                                        ? WIFI_PS_MAX_MODEM
+                                        : WIFI_PS_MIN_MODEM));
 
     m->scan_lock = xSemaphoreCreateMutex();
     m->queue = xQueueCreate(8, sizeof(msg_t));

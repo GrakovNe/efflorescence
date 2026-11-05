@@ -31,4 +31,21 @@ CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
 # LAN is how updates are tried before a release.
 CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
 
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+# Time spent in each power mode, for /api/v1/debug/pm.
+CONFIG_PM_PROFILING=y
+# Every beacon wakes the chip. The shorter each wake, the longer the
+# battery: keep the sleep path in RAM, switch the radio's digital half
+# off in between, and do not sit awake waiting for a beacon that was lost.
+CONFIG_PM_SLP_IRAM_OPT=y
+CONFIG_PM_RTOS_IDLE_OPT=y
+CONFIG_ESP_WIFI_SLP_IRAM_OPT=y
+CONFIG_ESP_PHY_MAC_BB_PD=y
+CONFIG_ESP_WIFI_SLP_BEACON_LOST_OPT=y
+
+# The 3.3 V rail falling to 2.92 V means the battery is at about 3 V:
+# empty. The reset this causes is how the lamp learns of it.
+CONFIG_ESP_BROWNOUT_DET_LVL_SEL_4=y
+
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

@@ -43,9 +43,11 @@ bool light_cmd_parse_text(const char *data, size_t len, light_cmd_t *cmd,
                           char *err, size_t err_sz);
 
 /* The state as it goes out over HTTP and MQTT:
- *   {"state": "ON" | "OFF", "brightness": 1..100, "soft": true | false}
+ *   {"state": "ON" | "OFF", "brightness": 1..100, "soft": true | false,
+ *    "battery_low": true | false}
  * NULL when out of memory. */
-cJSON *light_state_json(bool on, uint8_t brightness, bool soft);
+cJSON *light_state_json(bool on, uint8_t brightness, bool soft,
+                        bool battery_low);
 
 #ifdef __cplusplus
 }

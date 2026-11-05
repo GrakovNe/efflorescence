@@ -44,6 +44,7 @@ nav a.on { color:var(--text); border-bottom-color:var(--accent); }
 .tbl div:last-child { border-bottom:0; }
 .tbl span:first-child { color:var(--muted); }
 .tbl span:last-child { font-variant-numeric:tabular-nums; text-align:right; }
+.tbl span.bad { color:var(--error); }
 .tbl span.mono { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; }
 
 footer { border-top:1px solid var(--line); margin-top:auto; padding:18px 0 28px; font-size:12.5px; color:var(--faint); }
@@ -66,6 +67,7 @@ footer .err { color:var(--error); }
       <div><span>Soft on and off</span><span id="v-soft">—</span></div>
       <div><span>PWM</span><span id="v-pwm">—</span></div>
       <div><span>Duty</span><span id="v-duty">—</span></div>
+      <div><span>Battery</span><span id="v-bat">—</span></div>
     </div>
   </section>
 
@@ -153,6 +155,8 @@ function render(j) {
   $("s-light").textContent = on ? "On" : "Off";
   set("v-bri", l.brightness + " %");
   set("v-soft", l.soft ? "On" : "Off");
+  set("v-bat", l.battery_low ? "Low" : "Not reported low");
+  $("v-bat").className = l.battery_low ? "bad" : "";
   set("v-pwm", p.freq_hz + " Hz · " + p.bits + " bit");
   set("v-duty", (p.duty / p.duty_max * 100).toFixed(2) + " % · " + p.duty + " of " + p.duty_max + (p.raw ? " · bench override" : ""));
 

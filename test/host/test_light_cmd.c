@@ -113,16 +113,18 @@ static void test_text(void)
 
 static void test_state_json(void)
 {
-    cJSON *o = light_state_json(true, 60, false);
+    cJSON *o = light_state_json(true, 60, false, false);
     CHECK(o != NULL);
     char *s = cJSON_PrintUnformatted(o);
-    CHECK_STR(s, "{\"state\":\"ON\",\"brightness\":60,\"soft\":false}");
+    CHECK_STR(s, "{\"state\":\"ON\",\"brightness\":60,\"soft\":false,"
+                 "\"battery_low\":false}");
     cJSON_free(s);
     cJSON_Delete(o);
 
-    o = light_state_json(false, 1, true);
+    o = light_state_json(false, 1, true, true);
     s = cJSON_PrintUnformatted(o);
-    CHECK_STR(s, "{\"state\":\"OFF\",\"brightness\":1,\"soft\":true}");
+    CHECK_STR(s, "{\"state\":\"OFF\",\"brightness\":1,\"soft\":true,"
+                 "\"battery_low\":true}");
     cJSON_free(s);
     cJSON_Delete(o);
 }

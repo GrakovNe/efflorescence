@@ -46,6 +46,8 @@ static void test_topics(void)
     CHECK_STR(t, "homeassistant/event/efflorescence_c6e0_taps/config");
     ha_config_topic(&DEV, HA_UPDATE, t, sizeof t);
     CHECK_STR(t, "homeassistant/update/efflorescence_c6e0_firmware/config");
+    ha_config_topic(&DEV, HA_BATTERY, t, sizeof t);
+    CHECK_STR(t, "homeassistant/binary_sensor/efflorescence_c6e0_battery/config");
 }
 
 static void test_light(void)
@@ -130,8 +132,19 @@ static void test_update(void)
     free(s);
 }
 
+static void test_battery(void)
+{
+    cJSON *o = config(HA_BATTERY);
+    CHECK_STR(str(o, "device_class"), "battery");
+    CHECK_STR(str(o, "state_topic"), "efflorescence/c6e0/state");
+    CHECK(strstr(str(o, "value_template"), "value_json.battery_low") != NULL);
+    CHECK_STR(str(o, "entity_category"), "diagnostic");
+    cJSON_Delete(o);
+}
+
 int main(void)
 {
+    test_battery();
     test_topics();
     test_light();
     test_soft_switch();
