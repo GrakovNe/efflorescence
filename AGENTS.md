@@ -289,15 +289,12 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
   the frequency shortens the usable range from the bottom. The floor,
   2.9 % duty (23 µs pulses), was found by eye by the owner: it is what
   brightness 15 % was on the scale used before 2026-11-06.
-
-## Written, never run
-
-- `.github/workflows/release.yml`: builds with `APP_VERSION=v1.0.<run>`
-  (or the pushed `v*` tag), merges the full image, and publishes
-  `efflorescence-full.bin`, `efflorescence-app.bin`, the ESP Web Tools
-  `manifest.json` and the `ota.json` the lamps read to GitHub Pages at
-  the URL in `APP_UPDATE_URL`. The repository `GrakovNe/efflorescence`
-  does not exist yet; once it does, Pages has to be set to "GitHub
-  Actions". What it does was rehearsed by hand on 2026-11-06: a build
-  with `APP_VERSION=v1.0.1`, a manifest served from this machine, and
-  the lamp updating itself from it.
+- Releases: `gh workflow run release.yml` (named `v1.0.<run number>`) or
+  a pushed `v*` tag runs `.github/workflows/release.yml`. It builds with
+  `APP_VERSION` set to that name, merges the full image, attaches
+  `efflorescence-full.bin` and `efflorescence-app.bin` to the release and
+  deploys them to GitHub Pages together with the install page, the ESP
+  Web Tools `manifest.json` and `ota.json`, the manifest the lamps read
+  at `APP_UPDATE_URL`. First run on 2026-11-06: `v1.0.1`, and the bench
+  lamp updated itself from it. Every run is a release that every lamp
+  will offer to install, so run it when a release is meant.
