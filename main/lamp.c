@@ -39,6 +39,7 @@ static struct {
     lamp_core_t core;
 
     uint16_t floor;
+    bool steady; /* the pin is held high, the PWM is stopped */
     uint32_t duty;
     uint32_t freq_hz;
     int32_t raw_duty;      /* < 0: no override */
@@ -85,7 +86,17 @@ static void write_pwm(uint32_t duty, uint32_t freq_hz)
         return;
     }
     ctx.duty = duty;
+    if (duty >= DUTY_MAX) {
+        /* Full brightness is not a duty cycle: the counter cannot reach
+         * 100 % at this resolution, and there is nothing to switch. The
+         * pin is held high until a lower duty is asked for. */
+        ESP_ERROR_CHECK(ledc_stop(PWM_MODE, PWM_CHANNEL, 1));
+        ctx.steady = true;
+        return;
+    }
+    ctx.steady = false;
     ESP_ERROR_CHECK(ledc_set_duty(PWM_MODE, PWM_CHANNEL, duty));
+    /* Also switches the output back on after a stop. */
     ESP_ERROR_CHECK(ledc_update_duty(PWM_MODE, PWM_CHANNEL));
 }
 
@@ -249,6 +260,7 @@ void lamp_get(lamp_status_t *out)
     out->duty_max = DUTY_MAX;
     out->freq_hz = ctx.freq_hz;
     out->raw = ctx.raw_duty >= 0;
+    out->steady = ctx.steady;
     xSemaphoreGive(ctx.lock);
 }
 

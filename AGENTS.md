@@ -284,6 +284,8 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
   when the supply is; it clears itself once the LED has been on for five
   minutes. The rules are the pure `battery_logic.c`. None of this has
   been seen with a real empty battery, only with the bench simulation.
+- At 100 % brightness there is no PWM: `ledc_stop()` holds the pin
+  high, and the next lower duty starts the PWM again.
 - PWM is 1250 Hz, 14 bit. The optocoupler is the slow part: a PC817 into
   roughly 10 kΩ has 55-70 µs edges (Sharp datasheet, Fig. 13). Raising
   the frequency shortens the usable range from the bottom. The floor,

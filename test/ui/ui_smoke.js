@@ -167,6 +167,10 @@ function check(cond, name) {
   check(i.els["v-bat"].textContent === "Not reported low" && i.els["v-bat"].className === "", "info: battery row");
   check(i.els["v-pwm"].textContent === "1250 Hz · 14 bit", "info: pwm row");
   check(i.els["v-duty"].textContent === "30.00 % · 4915 of 16383", "info: duty row");
+  const full = { ...status, light: { ...status.light, brightness: 100,
+                 pwm: { ...status.light.pwm, duty: 16383, steady: true } } };
+  const ifull = await runPage(path.join(WEB, "info.html"), { "/api/v1/status": full, "/api/v1/config": cfg });
+  check(ifull.els["v-duty"].textContent === "Steady on, no PWM", "info: full brightness is not PWM");
   check(i.els["s-wifi"].textContent === "Connected", "info: wifi state");
   check(i.els["v-rssi"].textContent === "-58 dBm", "info: rssi row");
   check(i.els["v-host"].textContent === "bedside.local", "info: hostname row");

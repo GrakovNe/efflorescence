@@ -398,6 +398,7 @@ static esp_err_t handler_status(httpd_req_t *req)
     cJSON_AddNumberToObject(pwm, "duty_min", l.duty_min);
     cJSON_AddNumberToObject(pwm, "duty_max", l.duty_max);
     cJSON_AddBoolToObject(pwm, "raw", l.raw);
+    cJSON_AddBoolToObject(pwm, "steady", l.steady);
 
     cJSON_AddBoolToObject(wifi, "connected", w.sta_connected);
     cJSON_AddBoolToObject(wifi, "ap_up", w.ap_up);

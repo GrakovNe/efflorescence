@@ -158,7 +158,8 @@ function render(j) {
   set("v-bat", l.battery_low ? "Low" : "Not reported low");
   $("v-bat").className = l.battery_low ? "bad" : "";
   set("v-pwm", p.freq_hz + " Hz · " + p.bits + " bit");
-  set("v-duty", (p.duty / p.duty_max * 100).toFixed(2) + " % · " + p.duty + " of " + p.duty_max + (p.raw ? " · bench override" : ""));
+  set("v-duty", (p.steady ? "Steady on, no PWM" : (p.duty / p.duty_max * 100).toFixed(2) + " % · " + p.duty + " of " + p.duty_max) +
+      (p.raw ? " · bench override" : ""));
 
   if (w.connected) state("s-wifi", true, "Connected");
   else { $("s-wifi").className = "state" + (j.mode === "provisioning" || j.mode === "off" ? "" : " err"); $("s-wifi").textContent = WIFI[j.mode] || "No connection"; }

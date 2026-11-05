@@ -27,6 +27,7 @@ typedef struct {
     uint32_t duty_max;
     uint32_t freq_hz;
     bool     raw; /* the bench override drives the LED, not the state */
+    bool     steady; /* full brightness: the pin is high, no PWM */
 } lamp_status_t;
 
 /* Not const: a soft on/off change is stored in cfg. */
