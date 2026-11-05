@@ -15,6 +15,7 @@
 #include "gesture.h"
 #include "lamp.h"
 #include "reset.h"
+#include "wifi_mgr.h"
 
 static const char *TAG = "touch";
 
@@ -46,6 +47,7 @@ static void dispatch(gesture_event_t ev, uint8_t taps)
     case GESTURE_HOLD_BEGIN:
         ESP_LOGI(TAG, "hold");
         lamp_hold_begin();
+        wifi_mgr_wake();
         break;
     case GESTURE_HOLD_END:
         ESP_LOGI(TAG, "hold released");

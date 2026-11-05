@@ -31,11 +31,16 @@ static const char *TAG = "lamp";
 #define DUTY_MIN    (DUTY_MAX * CONFIG_APP_LED_DUTY_MIN_PERMILLE / 1000)
 
 static struct {
+    appconf_t *cfg;
     SemaphoreHandle_t lock;
     TaskHandle_t task;
     lamp_core_t core;
-    bool soft;
+
     uint32_t duty;
+    uint32_t freq_hz;
+    int32_t raw_duty;      /* < 0: no override */
+    uint32_t want_freq_hz;
+
     uint32_t saved_seq;
     uint32_t seen_seq;
     int64_t changed_ms;
@@ -46,22 +51,48 @@ static int64_t now_ms(void)
     return esp_timer_get_time() / 1000;
 }
 
-static uint32_t soft_ms(int32_t transition_ms)
+static uint32_t transition(int32_t transition_ms)
 {
     if (transition_ms >= 0) {
         return (uint32_t)transition_ms;
     }
-    return ctx.soft ? LAMP_SOFT_MS : 0;
+    return ctx.cfg->soft_switch ? LAMP_SOFT_MS : 0;
 }
 
-static void write_duty(uint32_t duty)
+static void write_pwm(uint32_t duty, uint32_t freq_hz)
 {
+    if (freq_hz != ctx.freq_hz) {
+        esp_err_t err = ledc_set_freq(PWM_MODE, PWM_TIMER, freq_hz);
+        if (err == ESP_OK) {
+            ctx.freq_hz = freq_hz;
+            ESP_LOGI(TAG, "pwm %" PRIu32 " Hz", freq_hz);
+        } else {
+            ESP_LOGW(TAG, "pwm %" PRIu32 " Hz: %s", freq_hz, esp_err_to_name(err));
+            ctx.want_freq_hz = ctx.freq_hz;
+        }
+    }
+    if (duty > DUTY_MAX) {
+        duty = DUTY_MAX;
+    }
     if (duty == ctx.duty) {
         return;
     }
     ctx.duty = duty;
     ESP_ERROR_CHECK(ledc_set_duty(PWM_MODE, PWM_CHANNEL, duty));
     ESP_ERROR_CHECK(ledc_update_duty(PWM_MODE, PWM_CHANNEL));
+}
+
+/* Call with the lock held. */
+static void save_state(void)
+{
+    if (ctx.core.seq == ctx.saved_seq) {
+        return;
+    }
+    if (settings_save_state(ctx.core.on, ctx.core.brightness) == ESP_OK) {
+        ESP_LOGI(TAG, "saved: %s, %u%%", ctx.core.on ? "on" : "off",
+                 (unsigned)ctx.core.brightness);
+    }
+    ctx.saved_seq = ctx.core.seq;
 }
 
 static void lamp_task(void *arg)
@@ -72,34 +103,29 @@ static void lamp_task(void *arg)
 
         xSemaphoreTake(ctx.lock, portMAX_DELAY);
         lamp_core_tick(&ctx.core, now);
-        uint16_t level = lamp_core_output(&ctx.core, now);
+        uint32_t duty = ctx.raw_duty >= 0
+            ? (uint32_t)ctx.raw_duty
+            : dimmer_duty(lamp_core_output(&ctx.core, now), DUTY_MIN, DUTY_MAX);
+        write_pwm(duty, ctx.want_freq_hz);
         bool busy = lamp_core_busy(&ctx.core);
-        uint32_t seq = ctx.core.seq;
-        bool on = ctx.core.on;
-        uint8_t brightness = ctx.core.brightness;
-        xSemaphoreGive(ctx.lock);
-
-        write_duty(dimmer_duty(level, DUTY_MIN, DUTY_MAX));
 
         /* Flash is written once the state has been quiet for a while, not
          * on every step of a slider or a held finger. */
         TickType_t wait = busy ? pdMS_TO_TICKS(TICK_MS) : portMAX_DELAY;
-        if (seq != ctx.saved_seq) {
-            if (seq != ctx.seen_seq) {
-                ctx.seen_seq = seq;
+        if (ctx.core.seq != ctx.saved_seq) {
+            if (ctx.core.seq != ctx.seen_seq) {
+                ctx.seen_seq = ctx.core.seq;
                 ctx.changed_ms = now;
             }
             int64_t left_ms = ctx.changed_ms + SAVE_DELAY_MS - now;
             if (left_ms <= 0) {
-                if (settings_save_state(on, brightness) == ESP_OK) {
-                    ESP_LOGI(TAG, "saved: %s, %u%%", on ? "on" : "off",
-                             (unsigned)brightness);
-                }
-                ctx.saved_seq = seq;
+                save_state();
             } else if (!busy) {
                 wait = pdMS_TO_TICKS(left_ms);
             }
         }
+        xSemaphoreGive(ctx.lock);
+
         ulTaskNotifyTake(pdTRUE, wait);
     }
 }
@@ -109,18 +135,42 @@ static void wake(void)
     xTaskNotifyGive(ctx.task);
 }
 
-void lamp_set(bool on, uint8_t brightness, int32_t transition_ms)
+void lamp_apply(const light_cmd_t *cmd)
 {
+    bool soft_changed = false;
+    bool soft = false;
+
     xSemaphoreTake(ctx.lock, portMAX_DELAY);
-    lamp_core_set(&ctx.core, now_ms(), on, brightness, soft_ms(transition_ms));
+    if (cmd->soft >= 0 && ctx.cfg->soft_switch != (cmd->soft != 0)) {
+        ctx.cfg->soft_switch = cmd->soft != 0;
+        soft = ctx.cfg->soft_switch;
+        soft_changed = true;
+    }
+    if (cmd->state != LIGHT_KEEP || cmd->brightness != 0) {
+        bool on = ctx.core.on;
+        if (cmd->state == LIGHT_ON) {
+            on = true;
+        } else if (cmd->state == LIGHT_OFF) {
+            on = false;
+        } else if (cmd->state == LIGHT_TOGGLE) {
+            on = !on;
+        }
+        lamp_core_set(&ctx.core, now_ms(), on, cmd->brightness,
+                      transition(cmd->transition_ms));
+    }
     xSemaphoreGive(ctx.lock);
+
+    if (soft_changed) {
+        settings_save_soft(soft);
+        ESP_LOGI(TAG, "soft on/off: %s", soft ? "on" : "off");
+    }
     wake();
 }
 
 void lamp_toggle(void)
 {
     xSemaphoreTake(ctx.lock, portMAX_DELAY);
-    lamp_core_toggle(&ctx.core, now_ms(), soft_ms(LAMP_TRANSITION_DEFAULT));
+    lamp_core_toggle(&ctx.core, now_ms(), transition(-1));
     xSemaphoreGive(ctx.lock);
     wake();
 }
@@ -160,14 +210,46 @@ void lamp_get(lamp_status_t *out)
     out->brightness = ctx.core.brightness;
     out->level = ctx.core.level;
     out->seq = ctx.core.seq;
+    out->soft = ctx.cfg->soft_switch;
+    out->duty = ctx.duty;
+    out->duty_min = DUTY_MIN;
+    out->duty_max = DUTY_MAX;
+    out->freq_hz = ctx.freq_hz;
+    out->raw = ctx.raw_duty >= 0;
     xSemaphoreGive(ctx.lock);
 }
 
-void lamp_start(void)
+void lamp_flush(void)
 {
+    if (ctx.lock == NULL) {
+        return;
+    }
+    xSemaphoreTake(ctx.lock, portMAX_DELAY);
+    save_state();
+    xSemaphoreGive(ctx.lock);
+}
+
+void lamp_debug_pwm(int32_t duty, uint32_t freq_hz)
+{
+    xSemaphoreTake(ctx.lock, portMAX_DELAY);
+    if (duty < 0) {
+        ctx.raw_duty = -1;
+        ctx.want_freq_hz = CONFIG_APP_PWM_FREQ_HZ;
+    } else {
+        ctx.raw_duty = duty;
+        if (freq_hz != 0) {
+            ctx.want_freq_hz = freq_hz;
+        }
+    }
+    xSemaphoreGive(ctx.lock);
+    wake();
+}
+
+void lamp_start(appconf_t *cfg)
+{
+    ctx.cfg = cfg;
     ctx.lock = xSemaphoreCreateMutex();
     configASSERT(ctx.lock != NULL);
-    ctx.soft = true;
 
     bool on = true;
     uint8_t brightness = LAMP_PCT_DEFAULT;
@@ -175,6 +257,9 @@ void lamp_start(void)
     lamp_core_init(&ctx.core, on, brightness);
     ctx.saved_seq = ctx.core.seq;
     ctx.seen_seq = ctx.core.seq;
+    ctx.raw_duty = -1;
+    ctx.freq_hz = CONFIG_APP_PWM_FREQ_HZ;
+    ctx.want_freq_hz = CONFIG_APP_PWM_FREQ_HZ;
 
     if (CONFIG_APP_LED_GND_GPIO >= 0) {
         gpio_config_t io = {
@@ -207,11 +292,12 @@ void lamp_start(void)
     ESP_ERROR_CHECK(ledc_channel_config(&channel));
 
     ESP_LOGI(TAG, "pwm gpio %d, %d Hz, %d bit, duty %" PRIu32 "..%" PRIu32
-             "; state: %s, %u%%",
+             "; state: %s, %u%%, soft %s",
              CONFIG_APP_LED_PWM_GPIO, CONFIG_APP_PWM_FREQ_HZ,
              CONFIG_APP_PWM_BITS, (uint32_t)DUTY_MIN, (uint32_t)DUTY_MAX,
-             on ? "on" : "off", (unsigned)ctx.core.brightness);
+             on ? "on" : "off", (unsigned)ctx.core.brightness,
+             cfg->soft_switch ? "on" : "off");
 
-    BaseType_t ok = xTaskCreate(lamp_task, "lamp", 3072, NULL, 6, &ctx.task);
+    BaseType_t ok = xTaskCreate(lamp_task, "lamp", 4096, NULL, 6, &ctx.task);
     configASSERT(ok == pdPASS);
 }

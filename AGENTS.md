@@ -27,14 +27,14 @@ that are not visible in the code.
 Build:
 
 ```bash
-export IDF_PYTHON_ENV_PATH=$HOME/.espressif/python_env/idf5.5_py3.14_env
 source ~/esp/esp-idf/export.sh
 IDF_SKIP_CHECK_SUBMODULES=1 idf.py build
 ```
 
-`IDF_PYTHON_ENV_PATH` is needed because the default `python3` is 3.15
-and the only installed IDF environment is the 3.14 one; without it
-`export.sh` fails and `idf.py` is not found. `IDF_SKIP_CHECK_SUBMODULES=1`
+The IDF Python environment is the 3.15 one
+(`~/.espressif/python_env/idf5.5_py3.15_env`). A build directory
+configured under another Python refuses to build until `idf.py
+fullclean`. `IDF_SKIP_CHECK_SUBMODULES=1`
 skips a git check that needs the network. After editing
 `main/Kconfig.projbuild` or adding a component: `idf.py reconfigure`.
 
@@ -59,7 +59,24 @@ print(re.sub(r'\x1b\[[0-9;]*m', '', buf.decode('utf-8', 'replace')))
 EOF
 ```
 
-Host tests: `cd test/host && make test`.
+Host tests: `cd test/host && make test` (the pure modules; the two that
+parse JSON compile cJSON from the ESP-IDF checkout) and
+`node test/ui/ui_smoke.js` (the three pages against mocked API answers).
+
+The device without Wi-Fi settings is the open AP `Efflorescence-C6E0`
+for five minutes after power-up; a hold on the sensor brings it back.
+The Mac cannot join it from an agent session, so first provisioning is
+done from a phone. After that the device answers at
+`http://efflorescence-c6e0.local/`:
+
+```bash
+curl http://efflorescence-c6e0.local/api/v1/status
+curl -d '{"state":"ON","brightness":40,"transition":2}' \
+     http://efflorescence-c6e0.local/api/v1/light
+# bench: raw duty and PWM frequency, then hand the LED back
+curl -d '{"duty":200,"freq_hz":400}' http://efflorescence-c6e0.local/api/v1/debug/pwm
+curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
+```
 
 ## Constraints
 
@@ -77,6 +94,31 @@ Host tests: `cd test/host && make test`.
   every other level maps into `DUTY_MIN..DUTY_MAX`.
 - Only the lamp task writes LEDC. Everything else goes through the
   `lamp_*()` calls, which take the lock and wake the task.
+- One command format for HTTP and (later) MQTT, parsed by the pure
+  `light_cmd.c`: `{"state": "ON"|"OFF"|"TOGGLE", "brightness": 1..100,
+  "transition": seconds, "soft": bool}`, every field optional, a superset
+  of the Home Assistant JSON light schema. The state goes out as
+  `{"state", "brightness", "soft"}` from `light_state_json()`.
+- A config POST saves and restarts, as in the reference. The one
+  exception is `soft` (soft on/off): it also changes live through a light
+  command, and then `lamp` updates `cfg` and writes the single NVS key.
+  The config POST merge is `config_merge.c` (pure, host-tested);
+  `web_server.c` only moves bytes.
+- Only `wifi_mgr` calls `esp_wifi_*`, and mode changes run on its task.
+  An AP cannot sleep, so it lives 5 minutes (`AP_LIFETIME_US`) unless a
+  phone is on it. Without Wi-Fi settings the radio then stops (`off`);
+  with settings the AP goes down and the station retries every 3
+  minutes. `wifi_mgr_wake()`, called on a hold of the sensor, brings the
+  AP back for another lifetime.
+- The API has no authentication and CORS `*` by decision of the owner,
+  OTA included. Secrets are reported only as `*_set` booleans.
+- Pages are self-contained HTML, no CDN: the captive portal has no
+  internet. Style: flat, one accent `#FF6F3F`, hairlines, uppercase
+  section labels, no cards, no explanatory copy.
+- `managed_components/` is downloaded; do not edit it.
+- The LED has series resistors and the MOSFET module is fed from the
+  battery, below the voltage it is meant for, so the LED gets dimmer as
+  the battery drains. The owner knows and accepts it.
 - State (on, brightness) is saved to NVS 5 s after the last change, never
   on every step. Only `settings.c` touches NVS. `reset_early_init()` runs
   before anything opens NVS.
@@ -98,13 +140,12 @@ Host tests: `cd test/host && make test`.
 
 ## Agreed with the owner, not built yet
 
-- Wi-Fi stays associated, auto light sleep while the lamp is off; no
-  sleep while the LED is on. Setup AP lives 5 minutes; without settings
-  the radio then goes off, with settings the station keeps retrying. A
-  hold on the sensor brings the radio back.
-- Web: on/off, brightness, soft on/off switch, schedule on the device
-  (time, weekdays, on/off, brightness, transition; applied live, no
-  restart), timezone. API without authentication, by decision.
+- Power: auto light sleep while the lamp is off and Wi-Fi stays
+  associated; no sleep while the LED is on.
+- Schedule on the device (time, weekdays, on/off, brightness,
+  transition; many entries; applied live at `/api/v1/schedule`, no
+  restart), timezone. A sunrise is an "on" entry with a long transition.
+  Missed events are not replayed.
 - MQTT: `<prefix>/set`, retained `<prefix>/state`, `<prefix>/get`, Home
   Assistant discovery (`light`, a `battery_low` binary sensor, an
   `update` entity), tap series as events.

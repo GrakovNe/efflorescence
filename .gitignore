@@ -12,4 +12,7 @@ test/host/*.dSYM/
 test/host/test_dimmer
 test/host/test_lamp_core
 test/host/test_gesture
+test/host/test_appconf
+test/host/test_config_merge
+test/host/test_light_cmd
 .DS_Store
