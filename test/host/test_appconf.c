@@ -54,6 +54,7 @@ static void test_defaults(void)
     CHECK_STR(c.device_name, "Efflorescence-1A2B");
     CHECK_STR(c.hostname, "efflorescence-1a2b");
     CHECK_STR(c.ntp_server, "pool.ntp.org");
+    CHECK_STR(c.tz, "UTC0");
     CHECK(c.wifi_ssid[0] == '\0');
     CHECK(c.soft_switch == true);
     /* The default name is also the setup AP's SSID. */
@@ -134,6 +135,26 @@ static void test_validate_ntp(void)
     CHECK(appconf_validate(&c, err, sizeof err));
 }
 
+static void test_validate_tz(void)
+{
+    appconf_t c;
+    char err[128];
+
+    appconf_defaults(&c, ID);
+    strcpy(c.tz, "MSK-3");
+    CHECK(appconf_validate(&c, err, sizeof err));
+    strcpy(c.tz, "CET-1CEST,M3.5.0,M10.5.0/3");
+    CHECK(appconf_validate(&c, err, sizeof err));
+    strcpy(c.tz, "<+0530>-5:30");
+    CHECK(appconf_validate(&c, err, sizeof err));
+
+    c.tz[0] = '\0';
+    CHECK(!appconf_validate(&c, err, sizeof err));
+    strcpy(c.tz, "Europe Moscow");
+    CHECK(!appconf_validate(&c, err, sizeof err));
+    CHECK(strstr(err, "POSIX TZ") != NULL);
+}
+
 static void test_sanitize(void)
 {
     appconf_t c;
@@ -145,8 +166,10 @@ static void test_sanitize(void)
     strcpy(c.wifi_ssid, "Home");
     strcpy(c.wifi_password, "short");
     strcpy(c.ntp_server, "ntp.example.org");
+    strcpy(c.tz, "MSK-3");
     c.soft_switch = false;
     CHECK(appconf_sanitize(&c, ID) == 1);
+    CHECK_STR(c.tz, "MSK-3");
     CHECK_STR(c.device_name, "Bedside");
     CHECK_STR(c.hostname, "bedside");
     CHECK(c.wifi_ssid[0] == '\0' && c.wifi_password[0] == '\0');
@@ -155,7 +178,8 @@ static void test_sanitize(void)
 
     memset(&c, 0xff, sizeof c);
     c.soft_switch = true;
-    CHECK(appconf_sanitize(&c, ID) == 3);
+    CHECK(appconf_sanitize(&c, ID) == 4);
+    CHECK_STR(c.tz, "UTC0");
     char err[128];
     CHECK(appconf_validate(&c, err, sizeof err));
     CHECK_STR(c.device_name, "Efflorescence-1A2B");
@@ -170,6 +194,7 @@ int main(void)
     test_validate_name();
     test_validate_wifi();
     test_validate_ntp();
+    test_validate_tz();
     test_sanitize();
     REPORT();
 }

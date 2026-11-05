@@ -4,6 +4,7 @@ idf_component_register(SRCS "main.c" "settings.c" "reset.c"
                               "wifi_mgr.c" "captive.c" "web_server.c"
                               "time_mgr.c" "config_merge.c"
                               "ota.c" "ota_logic.c"
+                              "schedule.c" "sched_mgr.c"
                        INCLUDE_DIRS "."
                        REQUIRES appconf nvs_flash esp_driver_gpio
                               esp_driver_ledc esp_hw_support esp_system
@@ -21,7 +22,7 @@ find_program(GZIP_EXECUTABLE gzip REQUIRED)
 set(WEB_SRC_DIR "${CMAKE_CURRENT_LIST_DIR}/../web")
 set(WEB_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/gen_web")
 
-foreach(page setup main info)
+foreach(page setup main info schedule)
     set(sym "${page}_html_gz")
     add_custom_command(
         OUTPUT ${WEB_GEN_DIR}/${page}.html.gz

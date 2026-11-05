@@ -48,6 +48,20 @@ static bool host_chars_ok(const char *s)
     return true;
 }
 
+static bool tz_ok(const char *s)
+{
+    if (s[0] == '\0') {
+        return false;
+    }
+    for (const char *p = s; *p != '\0'; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (c <= 0x20 || c > 0x7e) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void appconf_device_id(const uint8_t mac[6], char out[5])
 {
     snprintf(out, 5, "%02x%02x", mac[4], mac[5]);
@@ -104,6 +118,7 @@ void appconf_defaults(appconf_t *c, const char device_id[5])
     memset(c, 0, sizeof *c);
     appconf_default_name(device_id, c->device_name, sizeof c->device_name);
     snprintf(c->ntp_server, sizeof c->ntp_server, "%s", APPCONF_NTP_DEFAULT);
+    snprintf(c->tz, sizeof c->tz, "%s", APPCONF_TZ_DEFAULT);
     c->soft_switch = true;
     appconf_derive(c, device_id);
 }
@@ -162,6 +177,13 @@ bool appconf_validate(const appconf_t *c, char *err, size_t err_sz)
         BAD("NTP server has invalid characters.");
     }
 
+    if (!str_fits(c->tz, APPCONF_TZ_MAX)) {
+        BAD("Time zone is too long (max %d).", APPCONF_TZ_MAX);
+    }
+    if (!tz_ok(c->tz)) {
+        BAD("Time zone must be a POSIX TZ string without spaces.");
+    }
+
     return true;
 #undef BAD
 }
@@ -182,6 +204,11 @@ static void copy_ntp(appconf_t *dst, const appconf_t *src)
     memcpy(dst->ntp_server, src->ntp_server, sizeof dst->ntp_server);
 }
 
+static void copy_tz(appconf_t *dst, const appconf_t *src)
+{
+    memcpy(dst->tz, src->tz, sizeof dst->tz);
+}
+
 static void copy_light(appconf_t *dst, const appconf_t *src)
 {
     dst->soft_switch = src->soft_switch;
@@ -190,7 +217,7 @@ static void copy_light(appconf_t *dst, const appconf_t *src)
 int appconf_sanitize(appconf_t *c, const char device_id[5])
 {
     static void (*const groups[])(appconf_t *, const appconf_t *) = {
-        copy_device_name, copy_wifi, copy_ntp, copy_light,
+        copy_device_name, copy_wifi, copy_ntp, copy_tz, copy_light,
     };
     char err[128];
     if (appconf_validate(c, err, sizeof err)) {

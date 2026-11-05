@@ -27,6 +27,7 @@
 #include "light_cmd.h"
 #include "ota.h"
 #include "reset.h"
+#include "sched_mgr.h"
 #include "settings.h"
 #include "time_mgr.h"
 #include "wifi_mgr.h"
@@ -34,6 +35,7 @@
 #include "setup_html.h"
 #include "main_html.h"
 #include "info_html.h"
+#include "schedule_html.h"
 
 static const char *TAG = "web";
 
@@ -127,6 +129,11 @@ static esp_err_t handler_info(httpd_req_t *req)
     return serve_gz(req, info_html_gz, info_html_gz_len);
 }
 
+static esp_err_t handler_schedule_page(httpd_req_t *req)
+{
+    return serve_gz(req, schedule_html_gz, schedule_html_gz_len);
+}
+
 static esp_err_t handler_root(httpd_req_t *req)
 {
     if (wifi_mgr_ap_up()) {
@@ -215,6 +222,83 @@ static esp_err_t handler_light_post(httpd_req_t *req)
     return send_light(req);
 }
 
+static void add_clock(cJSON *obj)
+{
+    struct tm tm;
+    if (!time_mgr_local(&tm)) {
+        cJSON_AddNullToObject(obj, "local");
+        cJSON_AddNullToObject(obj, "weekday");
+        return;
+    }
+    char local[20];
+    strftime(local, sizeof local, "%Y-%m-%dT%H:%M:%S", &tm);
+    cJSON_AddStringToObject(obj, "local", local);
+    cJSON_AddNumberToObject(obj, "weekday", (tm.tm_wday + 6) % 7 + 1);
+}
+
+static esp_err_t send_schedule(httpd_req_t *req)
+{
+    sched_t s;
+    sched_mgr_get(&s);
+    sched_mgr_status_t st;
+    sched_mgr_get_status(&st);
+
+    cJSON *root = sched_to_json(&s);
+    cJSON *clock = cJSON_AddObjectToObject(root, "clock");
+    if (root == NULL || clock == NULL) {
+        cJSON_Delete(root);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, NULL);
+    }
+    cJSON_AddNumberToObject(root, "max", SCHED_MAX);
+    cJSON_AddBoolToObject(clock, "set", st.clock_set);
+    cJSON_AddStringToObject(clock, "tz", s_cfg->tz);
+    add_clock(clock);
+    if (st.next >= 0) {
+        cJSON *next = cJSON_AddObjectToObject(root, "next");
+        if (next != NULL) {
+            cJSON_AddNumberToObject(next, "entry", st.next);
+            cJSON_AddNumberToObject(next, "in_minutes", st.next_in_min);
+        }
+    } else {
+        cJSON_AddNullToObject(root, "next");
+    }
+    return send_json(req, "200 OK", root);
+}
+
+static esp_err_t handler_schedule_get(httpd_req_t *req)
+{
+    return send_schedule(req);
+}
+
+/* Replaces the whole list. It takes effect at once, no restart. */
+static esp_err_t handler_schedule_post(httpd_req_t *req)
+{
+    char *body = malloc(POST_BODY_MAX);
+    if (body == NULL) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, NULL);
+    }
+    if (read_body(req, body, POST_BODY_MAX) < 0) {
+        free(body);
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, NULL);
+    }
+    cJSON *root = cJSON_Parse(body);
+    free(body);
+    if (root == NULL) {
+        return send_json_err(req, "body is not valid JSON");
+    }
+    sched_t s;
+    char err[96];
+    bool ok = sched_from_json(root, &s, err, sizeof err);
+    cJSON_Delete(root);
+    if (!ok) {
+        return send_json_err(req, err);
+    }
+    if (sched_mgr_set(&s) != ESP_OK) {
+        return send_json_err(req, "could not save the schedule");
+    }
+    return send_schedule(req);
+}
+
 static const char *reset_reason_str(void)
 {
     switch (esp_reset_reason()) {
@@ -257,6 +341,8 @@ static esp_err_t handler_status(httpd_req_t *req)
 
     add_timestamp(tm, "timestamp");
     cJSON_AddBoolToObject(tm, "synced", time_mgr_synced());
+    cJSON_AddStringToObject(tm, "tz", s_cfg->tz);
+    add_clock(tm);
     cJSON_AddNumberToObject(tm, "uptime_s", esp_timer_get_time() / 1000000);
 
     esp_chip_info_t chip;
@@ -338,6 +424,7 @@ static esp_err_t handler_config_get(httpd_req_t *req)
     cJSON_AddStringToObject(wifi, "ssid", s_cfg->wifi_ssid);
     cJSON_AddBoolToObject(wifi, "password_set", s_cfg->wifi_password[0] != '\0');
     cJSON_AddStringToObject(time, "ntp_server", s_cfg->ntp_server);
+    cJSON_AddStringToObject(time, "tz", s_cfg->tz);
     cJSON_AddBoolToObject(light, "soft", s_cfg->soft_switch);
     return send_json(req, "200 OK", root);
 }
@@ -661,7 +748,7 @@ void web_server_start(const appconf_t *cfg, const char device_id[5])
     snprintf(s_mac_str, sizeof s_mac_str, MACSTR, MAC2STR(mac));
 
     httpd_config_t hc = HTTPD_DEFAULT_CONFIG();
-    hc.max_uri_handlers = 32;
+    hc.max_uri_handlers = 40;
     hc.stack_size = 8192;
     hc.lru_purge_enable = true;
     hc.server_port = 80;
@@ -673,6 +760,10 @@ void web_server_start(const appconf_t *cfg, const char device_id[5])
         { .uri = "/main", .method = HTTP_GET, .handler = handler_main },
         { .uri = "/config", .method = HTTP_GET, .handler = handler_settings_page },
         { .uri = "/info", .method = HTTP_GET, .handler = handler_info },
+        { .uri = "/schedule", .method = HTTP_GET, .handler = handler_schedule_page },
+        { .uri = "/api/v1/schedule", .method = HTTP_GET, .handler = handler_schedule_get },
+        { .uri = "/api/v1/schedule", .method = HTTP_POST, .handler = handler_schedule_post },
+        { .uri = "/api/v1/schedule", .method = HTTP_OPTIONS, .handler = handler_options },
         { .uri = "/api/v1/wifi/scan", .method = HTTP_GET, .handler = handler_wifi_scan },
         { .uri = "/api/v1/light", .method = HTTP_GET, .handler = handler_light_get },
         { .uri = "/api/v1/light", .method = HTTP_POST, .handler = handler_light_post },

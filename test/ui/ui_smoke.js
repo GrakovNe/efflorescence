@@ -62,6 +62,7 @@ function runPage(file, apiData) {
     clearInterval: () => {},
     setTimeout: () => 0,
     clearTimeout: () => {},
+    Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone: "Europe/Moscow" }) }) },
     console, Date, Math, JSON, String, Number, Array, Promise, Set,
   };
   vm.createContext(ctx);
@@ -80,7 +81,7 @@ function check(cond, name) {
   const now = Math.floor(Date.now() / 1000);
   const light = { state: "ON", brightness: 60, soft: true };
   const status = {
-    time: { timestamp: now, synced: true, uptime_s: 5231 },
+    time: { timestamp: now, synced: true, tz: "MSK-3", local: "2026-11-05T23:41:07", weekday: 4, uptime_s: 5231 },
     device: {
       name: "Bedside", id: "c6e0", hostname: "bedside", chip: "ESP32-C3", revision: "v0.4", cores: 1, cpu_mhz: 160,
       firmware: "abc1234", slot: "ota_1", pending_verify: false, idf: "v5.5.5", build_date: "Nov  5 2026", mac: "44:b1:76:5d:c6:e0",
@@ -146,7 +147,7 @@ function check(cond, name) {
   const cfg = {
     device: { name: "Bedside" },
     wifi: { ssid: "Home", password_set: true },
-    time: { ntp_server: "pool.ntp.org" },
+    time: { ntp_server: "pool.ntp.org", tz: "MSK-3" },
     light: { soft: true },
   };
   const i = await runPage(path.join(WEB, "info.html"), { "/api/v1/status": status, "/api/v1/config": cfg });
@@ -161,6 +162,8 @@ function check(cond, name) {
   check(i.els["v-host"].textContent === "bedside.local", "info: hostname row");
   check(i.els["v-ntp"].textContent === "pool.ntp.org", "info: ntp from config");
   check(i.els["v-up"].textContent === "1 h 27 min", "info: uptime");
+  check(i.els["v-tz"].textContent === "MSK-3", "info: time zone");
+  check(i.els["v-now"].textContent === "2026-11-05 23:41:07", "info: device local time");
   check(i.els["v-flash"].textContent === "4.0 MB", "info: flash size");
   check(i.els["v-reset"].textContent === "Power on", "info: reset reason");
   check(i.els["v-chip"].textContent === "ESP32-C3 rev v0.4 · 1 × 160 MHz", "info: chip row");
@@ -171,7 +174,7 @@ function check(cond, name) {
                 light: { state: "OFF", brightness: 60, soft: false,
                          pwm: { freq_hz: 400, bits: 14, duty: 200, duty_min: 163, duty_max: 16383, raw: true } },
                 wifi: { ...status.wifi, connected: false, rssi: null, channel: null, ip: null, gateway: null },
-                time: { ...status.time, synced: false, timestamp: null } };
+                time: { ...status.time, synced: false, timestamp: null, local: null, weekday: null } };
   const i2 = await runPage(path.join(WEB, "info.html"), { "/api/v1/status": st2, "/api/v1/config": cfg });
   check(i2.els["s-light"].textContent === "Off", "info: light off");
   check(i2.els["s-light"].className === "state", "info: light off is neutral");
@@ -202,6 +205,8 @@ function check(cond, name) {
   check(s.els.passhint.textContent.includes("leave empty"), "setup: pass hint");
   check(s.els.ntp.value === "pool.ntp.org", "setup: ntp");
   check(s.els.soft.checked === true, "setup: soft switch");
+  check(s.els.tz.value === "MSK-3", "setup: time zone selected");
+  check(s.els.tz.children.length > 20 && s.els.tz.children.every(o => o.value !== "MSK-3" || o.textContent.includes("Moscow")), "setup: zone list filled");
   check(s.els.nets.children.length === 2, "setup: scan list rendered");
   check(s.els.nets.children[0].className === "net sel", "setup: saved network selected");
   check(s.els.h1 === undefined, "setup: title untouched on LAN");
@@ -232,6 +237,17 @@ function check(cond, name) {
   check(saved && saved.device.name === "Night Light", "setup: posts the device name");
   check(saved && saved.wifi.ssid === "Home" && !("password" in saved.wifi), "setup: untouched password is not sent");
   check(saved && saved.time.ntp_server === "pool.ntp.org", "setup: posts ntp");
+  check(saved && saved.time.tz === "MSK-3", "setup: posts the time zone");
+
+  const sz = await runPage(path.join(WEB, "setup.html"), {
+    "/api/v1/status": status, "/api/v1/config": { ...cfg, time: { ntp_server: "pool.ntp.org", tz: "<+0545>-5:45" } },
+    "/api/v1/wifi/scan": { scanning: false, networks: [] },
+  });
+  check(sz.els.tz.value === "<+0545>-5:45", "setup: an unlisted zone is kept");
+  check(sz.els.tz.children[sz.els.tz.children.length - 1].textContent === "<+0545>-5:45", "setup: an unlisted zone gets its own option");
+  sz.els.tzdetect.onclick();
+  check(sz.els.tz.value === "MSK-3", "setup: zone taken from the browser");
+  check(sz.els.savebar.className.includes("show"), "setup: detected zone is an unsaved change");
 
   const ota = { current: "v1.0.12", slot: "ota_0", pending_verify: false, phase: "idle", progress: null,
                 available: null, newer: false, error: null, manifest: "https://example.org/ota.json" };
@@ -258,6 +274,60 @@ function check(cond, name) {
   await o1.els.otacheck.onclick();
   check(o1.fetchCalls.some(c => c.startsWith("/api/v1/ota/check POST")), "setup: check button posts");
   check(!o1.els.savebar || !o1.els.savebar.className.includes("show"), "setup: firmware actions are not unsaved changes");
+
+  const sched = {
+    entries: [
+      { enabled: true, days: [1, 2, 3, 4, 5], time: "07:00", state: "ON", brightness: 60, transition: 1800 },
+      { enabled: false, days: [1, 2, 3, 4, 5, 6, 7], time: "23:30", state: "OFF", brightness: null, transition: 0 },
+    ],
+    max: 12,
+    clock: { set: true, tz: "MSK-3", local: "2026-11-05T23:41:07", weekday: 4 },
+    next: { entry: 0, in_minutes: 439 },
+  };
+  const sc = await runPage(path.join(WEB, "schedule.html"), { "/api/v1/schedule": sched, "/api/v1/status": status });
+  check(sc.els.clock.textContent === "Thu 23:41", "schedule: device clock");
+  check(sc.els.next.textContent === "Time zone MSK-3 · next: Fri 07:00, on", "schedule: next entry");
+  check((sc.els.list.innerHTML.match(/class="row/g) || []).length === 2, "schedule: two rows");
+  check(sc.els.list.innerHTML.includes('value="07:00"') && sc.els.list.innerHTML.includes('value="30"'), "schedule: time and fade minutes");
+  check(sc.els.list.innerHTML.includes("Reaches its brightness at 07:30"), "schedule: sunrise end shown");
+  check(sc.els.list.innerHTML.includes('class="row offed"'), "schedule: disabled entry dimmed");
+  check((sc.els.list.innerHTML.match(/class="day on"/g) || []).length === 12, "schedule: day toggles");
+  check(sc.els.add.disabled === false, "schedule: can add");
+  check(!sc.els.savebar || !sc.els.savebar.className.includes("show"), "schedule: clean after load");
+  check(sc.doc.title === "Bedside · Schedule", "schedule: title");
+
+  let sent = null;
+  sc.ctx.fetch = (url, opts) => {
+    if (opts && opts.method === "POST") sent = JSON.parse(opts.body);
+    return Promise.resolve({ ok: true, json: async () => ({ ...sched, entries: sent.entries }) });
+  };
+  sc.ctx.addEntry();
+  check((sc.els.list.innerHTML.match(/class="row/g) || []).length === 3, "schedule: entry added");
+  check(sc.els.savebar.className.includes("show"), "schedule: adding is an unsaved change");
+  sc.ctx.setField(2, "time", "06:15");
+  sc.ctx.setField(2, "fade", "1.5");
+  sc.ctx.setField(2, "brightness", "35");
+  sc.ctx.toggleDay(2, 7);
+  sc.ctx.toggleDay(2, 6);
+  sc.ctx.setField(0, "state", "OFF");
+  await sc.ctx.save();
+  check(sent && sent.entries.length === 3, "schedule: posts every entry");
+  check(sent && sent.entries[2].time === "06:15" && sent.entries[2].transition === 90, "schedule: fade minutes become seconds");
+  check(sent && sent.entries[2].brightness === 35 && sent.entries[2].days.join() === "1,2,3,4,5", "schedule: brightness and days posted");
+  check(sent && sent.entries[0].state === "OFF" && sent.entries[0].brightness === null, "schedule: off carries no brightness");
+  check(sent && sent.entries[1].enabled === false && sent.entries[1].transition === 0, "schedule: untouched entry survives");
+  check(!sc.els.savebar.className.includes("show"), "schedule: clean after save");
+  sc.ctx.removeEntry(0);
+  check((sc.els.list.innerHTML.match(/class="row/g) || []).length === 2, "schedule: entry removed");
+
+  const sc2 = await runPage(path.join(WEB, "schedule.html"), {
+    "/api/v1/schedule": { entries: [], max: 12, clock: { set: false, tz: "UTC0", local: null, weekday: null }, next: null },
+    "/api/v1/status": status,
+  });
+  check(sc2.els.clock.className === "clock err" && sc2.els.clock.textContent.includes("not set"), "schedule: unset clock is called out");
+  check(sc2.els.list.innerHTML.includes("No entries."), "schedule: empty list");
+  const sc3 = await runPage(path.join(WEB, "schedule.html"), {});
+  check(sc3.els.upd.textContent === "Device not reachable", "schedule: unreachable footer");
 
   const s4 = await runPage(path.join(WEB, "setup.html"), {
     "/api/v1/status": { ...status, mode: "provisioning" },

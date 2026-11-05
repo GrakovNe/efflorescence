@@ -180,6 +180,20 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
   release build (`v1.0.<run>`), `git describe` otherwise. Only versions
   of the form `v1.0.123` count as releases; a development build is
   offered any release and never offered as one.
+- The schedule is the pure `schedule.c` (validation, what is due, what
+  is next, JSON both ways); `sched_mgr.c` only ticks once a minute and
+  stores the list as one NVS blob. `POST /api/v1/schedule` replaces the
+  whole list and takes effect at once, no restart. An entry's time is
+  when its action *starts*; a sunrise is an "on" entry with a long
+  transition and the page shows when it ends. An entry fires only in its
+  own minute (a tick up to two minutes late still runs it); anything
+  older is missed and stays missed. Entries due in the same minute run
+  in list order, so the later one wins.
+- The device has no zone database: the zone is a POSIX TZ string in
+  `cfg->tz`, picked on the settings page from a table of presets. The
+  clock counts as set after an NTP sync or when the RTC kept it across a
+  restart (seen in the boot log: "clock kept across the restart"); after
+  a power loss the schedule waits for NTP.
 - PWM is 1250 Hz, 14 bit. The optocoupler is the slow part: a PC817 into
   roughly 10 kΩ has 55-70 µs edges (Sharp datasheet, Fig. 13). Raising
   the frequency shortens the usable range from the bottom. The lowest
@@ -190,10 +204,6 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
 
 - Power: auto light sleep while the lamp is off and Wi-Fi stays
   associated; no sleep while the LED is on.
-- Schedule on the device (time, weekdays, on/off, brightness,
-  transition; many entries; applied live at `/api/v1/schedule`, no
-  restart), timezone. A sunrise is an "on" entry with a long transition.
-  Missed events are not replayed.
 - MQTT: `<prefix>/set`, retained `<prefix>/state`, `<prefix>/get`, Home
   Assistant discovery (`light`, a `battery_low` binary sensor, an
   `update` entity), tap series as events.

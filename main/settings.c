@@ -15,15 +15,25 @@ static const char *TAG = "settings";
 
 #define CFG_NS   "cfg"
 #define STATE_NS "state"
+#define SCHED_NS "sched"
 
 #define KEY_NAME  "name"
 #define KEY_WSSID "wssid"
 #define KEY_WPASS "wpass"
 #define KEY_NTP   "ntp"
+#define KEY_TZ    "tz"
 #define KEY_SOFT  "soft"
 
 #define KEY_ON  "on"
 #define KEY_BRI "bri"
+
+#define KEY_SCHED     "list"
+#define SCHED_VERSION 1
+
+typedef struct {
+    uint8_t version;
+    sched_t sched;
+} sched_blob_t;
 
 void settings_nvs_init(void)
 {
@@ -83,6 +93,7 @@ void settings_load(appconf_t *c, const char device_id[5])
     get_str(h, KEY_WSSID, c->wifi_ssid, sizeof c->wifi_ssid);
     get_str(h, KEY_WPASS, c->wifi_password, sizeof c->wifi_password);
     get_str(h, KEY_NTP, c->ntp_server, sizeof c->ntp_server);
+    get_str(h, KEY_TZ, c->tz, sizeof c->tz);
     get_bool(h, KEY_SOFT, &c->soft_switch);
     nvs_close(h);
 
@@ -114,6 +125,7 @@ esp_err_t settings_save(const appconf_t *c)
     PUT(nvs_set_str(h, KEY_WSSID, c->wifi_ssid));
     PUT(nvs_set_str(h, KEY_WPASS, c->wifi_password));
     PUT(nvs_set_str(h, KEY_NTP, c->ntp_server));
+    PUT(nvs_set_str(h, KEY_TZ, c->tz));
     PUT(nvs_set_u8(h, KEY_SOFT, c->soft_switch));
     PUT(nvs_commit(h));
 #undef PUT
@@ -183,6 +195,53 @@ esp_err_t settings_save_state(bool on, uint8_t brightness)
     nvs_close(h);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "save state: %s", esp_err_to_name(err));
+    }
+    return err;
+}
+
+void settings_load_schedule(sched_t *out)
+{
+    memset(out, 0, sizeof *out);
+    nvs_handle_t h;
+    if (nvs_open(SCHED_NS, NVS_READONLY, &h) != ESP_OK) {
+        return;
+    }
+    sched_blob_t blob;
+    size_t sz = sizeof blob;
+    esp_err_t err = nvs_get_blob(h, KEY_SCHED, &blob, &sz);
+    nvs_close(h);
+    char why[96];
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return;
+    }
+    if (err != ESP_OK || sz != sizeof blob || blob.version != SCHED_VERSION ||
+        !sched_validate(&blob.sched, why, sizeof why)) {
+        ESP_LOGW(TAG, "stored schedule unreadable, starting empty");
+        return;
+    }
+    *out = blob.sched;
+}
+
+esp_err_t settings_save_schedule(const sched_t *s)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(SCHED_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_open %s: %s", SCHED_NS, esp_err_to_name(err));
+        return err;
+    }
+    /* static: zeroed padding keeps the blob the same for the same list. */
+    static sched_blob_t blob;
+    memset(&blob, 0, sizeof blob);
+    blob.version = SCHED_VERSION;
+    blob.sched = *s;
+    err = nvs_set_blob(h, KEY_SCHED, &blob, sizeof blob);
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "save schedule: %s", esp_err_to_name(err));
     }
     return err;
 }

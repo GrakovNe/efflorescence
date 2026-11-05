@@ -12,6 +12,7 @@
 #include "mdns.h"
 #include "ota.h"
 #include "reset.h"
+#include "sched_mgr.h"
 #include "settings.h"
 #include "time_mgr.h"
 #include "touch.h"
@@ -61,9 +62,9 @@ void app_main(void)
     settings_load(cfg, device_id);
     ESP_LOGI(TAG, "device %s: name \"%s\", hostname %s.local",
              device_id, cfg->device_name, cfg->hostname);
-    ESP_LOGI(TAG, "wifi: %s, ntp: %s",
+    ESP_LOGI(TAG, "wifi: %s, ntp: %s, zone %s",
              cfg->wifi_ssid[0] != '\0' ? cfg->wifi_ssid : "not configured",
-             cfg->ntp_server);
+             cfg->ntp_server, cfg->tz);
 
     /* The light and the sensor come first: the lamp works without a
      * network. */
@@ -73,6 +74,7 @@ void app_main(void)
     wifi_mgr_start(cfg, device_id);
     web_server_start(cfg, device_id);
     time_mgr_start(cfg);
+    sched_mgr_start();
     mdns_start(cfg);
     ota_start(cfg);
 }

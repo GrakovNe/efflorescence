@@ -9,6 +9,7 @@
 
 #include "esp_err.h"
 #include "appconf.h"
+#include "schedule.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,6 +28,11 @@ esp_err_t settings_save_soft(bool soft);
 void settings_load_state(bool *on, uint8_t *brightness);
 
 esp_err_t settings_save_state(bool on, uint8_t brightness);
+
+/* Empty when nothing usable was stored. */
+void settings_load_schedule(sched_t *out);
+
+esp_err_t settings_save_schedule(const sched_t *s);
 
 #ifdef __cplusplus
 }

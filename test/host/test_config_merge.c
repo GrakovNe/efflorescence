@@ -47,12 +47,13 @@ static void test_all_sections(void)
 
     CHECK(merge(&c, "{\"device\":{\"name\":\"Lamp\"},"
                     "\"wifi\":{\"ssid\":\"Home\",\"password\":\"secret123\"},"
-                    "\"time\":{\"ntp_server\":\"ntp.example.org\"},"
+                    "\"time\":{\"ntp_server\":\"ntp.example.org\",\"tz\":\"MSK-3\"},"
                     "\"light\":{\"soft\":false}}", err, sizeof err));
     CHECK_STR(c.device_name, "Lamp");
     CHECK_STR(c.wifi_ssid, "Home");
     CHECK_STR(c.wifi_password, "secret123");
     CHECK_STR(c.ntp_server, "ntp.example.org");
+    CHECK_STR(c.tz, "MSK-3");
     CHECK(c.soft_switch == false);
 
     /* An open network: the page sends an empty password. */
@@ -87,6 +88,10 @@ static void test_rejects(void)
     CHECK(!merge(&c, "{\"device\":{\"name\":\"abcdefghijklmnopqrstuvwxyz0123456\"}}",
                  err, sizeof err));
     CHECK(strstr(err, "at most 32 bytes") != NULL);
+
+    appconf_defaults(&c, ID);
+    CHECK(!merge(&c, "{\"time\":{\"tz\":\"Europe Moscow\"}}", err, sizeof err));
+    CHECK(strstr(err, "POSIX TZ") != NULL);
 
     appconf_defaults(&c, ID);
     CHECK(!merge(&c, "{\"wifi\":{\"ssid\":\"Home\",\"password\":\"short\"}}", err,

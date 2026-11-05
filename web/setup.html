@@ -29,10 +29,11 @@ svg.i { width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:1.
 
 header { border-bottom:1px solid var(--line); }
 header .wrap { display:flex; align-items:center; height:56px; gap:28px; }
-header .name { font-weight:600; font-size:15px; flex:1; letter-spacing:-.01em; }
+header .name { font-weight:600; font-size:15px; flex:1; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 nav { display:flex; gap:22px; height:100%; }
-nav a { display:flex; align-items:center; font-size:14px; color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px; }
+nav a { display:flex; align-items:center; font-size:14px; color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; }
 nav a.on { color:var(--text); border-bottom-color:var(--accent); }
+@media (max-width:560px) { header .wrap { gap:14px; } nav { gap:14px; } nav a { font-size:13px; } }
 
 .title { padding:30px 0 6px; }
 .title h1 { font-size:22px; font-weight:600; margin:0; letter-spacing:-.015em; }
@@ -50,10 +51,11 @@ nav a.on { color:var(--text); border-bottom-color:var(--accent); }
 label.l { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
 label.l .r { float:right; }
 label.l .r a { color:var(--accent); font-size:12.5px; cursor:pointer; }
-input[type=text], input[type=password], input[type=number], textarea {
+input[type=text], input[type=password], input[type=number], textarea, select {
   width:100%; font:inherit; font-size:15px; color:var(--text); background:var(--field); border:1px solid var(--line);
   border-radius:4px; padding:9px 11px; outline:none; transition:border-color .15s; }
-input:focus, textarea:focus { border-color:var(--text); }
+input:focus, textarea:focus, select:focus { border-color:var(--text); }
+select { height:40px; }
 textarea { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12.5px; min-height:110px; resize:vertical; }
 .hint { font-size:12.5px; color:var(--muted); margin-top:6px; min-height:17px; }
 .hint.ok { color:var(--ok); }
@@ -135,7 +137,7 @@ footer .l + .l { margin-top:4px; }
 <body>
 <header><div class="wrap">
   <div class="name" id="devname">Efflorescence</div>
-  <nav id="nav"><a href="/main">Dashboard</a><a class="on" href="/config">Settings</a><a href="/info">Device Info</a></nav>
+  <nav id="nav"><a href="/main">Dashboard</a><a href="/schedule">Schedule</a><a class="on" href="/config">Settings</a><a href="/info">Device Info</a></nav>
 </div></header>
 
 <main class="wrap" id="page">
@@ -179,6 +181,10 @@ footer .l + .l { margin-top:4px; }
         <label class="l" for="name">Device name</label>
         <input type="text" id="name" maxlength="32" autocomplete="off">
         <div class="hint">Reachable at <b id="hostprev"></b></div>
+      </div>
+      <div class="f">
+        <label class="l" for="tz">Time zone <span class="r"><a id="tzdetect">from this browser</a></span></label>
+        <select id="tz"></select>
       </div>
       <div class="f">
         <label class="l" for="ntp">NTP server <span class="r"><a data-def="ntp">default</a></span></label>
@@ -266,7 +272,7 @@ function markDirty(k) {
   $("savebar").classList.add("show");
   document.body.classList.add("dirty");
 }
-document.querySelectorAll("main input:not([type=file]), main textarea").forEach(el => {
+document.querySelectorAll("main input:not([type=file]), main textarea, main select").forEach(el => {
   el.addEventListener("input", () => markDirty(el.id));
   el.addEventListener("change", () => markDirty(el.id));
 });
@@ -398,6 +404,81 @@ $("resetok").onclick = async () => {
               "http://192.168.4.1/", "The setup page opens by itself on most phones.", false);
 };
 
+/* POSIX TZ strings: the device has no zone database. */
+const ZONES = [
+  ["UTC", "UTC0", ["UTC", "Etc/UTC", "Atlantic/Reykjavik"]],
+  ["Lisbon, London, Dublin", "GMT0BST,M3.5.0/1,M10.5.0", ["Europe/London", "Europe/Dublin", "Europe/Lisbon"]],
+  ["Berlin, Paris, Rome, Warsaw", "CET-1CEST,M3.5.0,M10.5.0/3", ["Europe/Berlin", "Europe/Paris", "Europe/Rome", "Europe/Madrid", "Europe/Amsterdam",
+    "Europe/Brussels", "Europe/Vienna", "Europe/Zurich", "Europe/Prague", "Europe/Warsaw", "Europe/Stockholm", "Europe/Oslo", "Europe/Copenhagen",
+    "Europe/Budapest", "Europe/Belgrade"]],
+  ["Helsinki, Kyiv, Riga, Athens", "EET-2EEST,M3.5.0/3,M10.5.0/4", ["Europe/Helsinki", "Europe/Kyiv", "Europe/Kiev", "Europe/Riga", "Europe/Vilnius",
+    "Europe/Tallinn", "Europe/Athens", "Europe/Sofia", "Europe/Bucharest"]],
+  ["Kaliningrad", "EET-2", ["Europe/Kaliningrad"]],
+  ["Moscow, Saint Petersburg, Minsk, Istanbul", "MSK-3", ["Europe/Moscow", "Europe/Minsk", "Europe/Istanbul", "Europe/Simferopol", "Europe/Kirov",
+    "Europe/Volgograd"]],
+  ["Samara, Tbilisi, Yerevan, Dubai", "<+04>-4", ["Europe/Samara", "Asia/Tbilisi", "Asia/Yerevan", "Asia/Dubai", "Asia/Baku", "Europe/Saratov",
+    "Europe/Astrakhan", "Europe/Ulyanovsk"]],
+  ["Yekaterinburg, Tashkent, Almaty", "<+05>-5", ["Asia/Yekaterinburg", "Asia/Tashkent", "Asia/Almaty", "Asia/Karachi"]],
+  ["India", "IST-5:30", ["Asia/Kolkata", "Asia/Calcutta"]],
+  ["Omsk, Dhaka", "<+06>-6", ["Asia/Omsk", "Asia/Dhaka", "Asia/Bishkek"]],
+  ["Novosibirsk, Krasnoyarsk, Bangkok", "<+07>-7", ["Asia/Novosibirsk", "Asia/Krasnoyarsk", "Asia/Bangkok", "Asia/Ho_Chi_Minh", "Asia/Jakarta",
+    "Asia/Barnaul", "Asia/Tomsk", "Asia/Novokuznetsk"]],
+  ["Irkutsk, Beijing, Singapore, Perth", "<+08>-8", ["Asia/Irkutsk", "Asia/Shanghai", "Asia/Singapore", "Asia/Hong_Kong", "Australia/Perth",
+    "Asia/Taipei", "Asia/Manila"]],
+  ["Yakutsk, Tokyo, Seoul", "<+09>-9", ["Asia/Yakutsk", "Asia/Tokyo", "Asia/Seoul", "Asia/Chita"]],
+  ["Vladivostok, Brisbane", "<+10>-10", ["Asia/Vladivostok", "Australia/Brisbane"]],
+  ["Sydney, Melbourne", "AEST-10AEDT,M10.1.0,M4.1.0/3", ["Australia/Sydney", "Australia/Melbourne"]],
+  ["Magadan, Sakhalin", "<+11>-11", ["Asia/Magadan", "Asia/Sakhalin"]],
+  ["Kamchatka", "<+12>-12", ["Asia/Kamchatka"]],
+  ["Auckland", "NZST-12NZDT,M9.5.0,M4.1.0/3", ["Pacific/Auckland"]],
+  ["Honolulu", "HST10", ["Pacific/Honolulu"]],
+  ["Anchorage", "AKST9AKDT,M3.2.0,M11.1.0", ["America/Anchorage"]],
+  ["Los Angeles, Vancouver", "PST8PDT,M3.2.0,M11.1.0", ["America/Los_Angeles", "America/Vancouver"]],
+  ["Denver", "MST7MDT,M3.2.0,M11.1.0", ["America/Denver", "America/Edmonton"]],
+  ["Phoenix", "MST7", ["America/Phoenix"]],
+  ["Chicago, Mexico City", "CST6CDT,M3.2.0,M11.1.0", ["America/Chicago", "America/Winnipeg"]],
+  ["New York, Toronto", "EST5EDT,M3.2.0,M11.1.0", ["America/New_York", "America/Toronto"]],
+  ["Halifax", "AST4ADT,M3.2.0,M11.1.0", ["America/Halifax"]],
+  ["Sao Paulo, Buenos Aires", "<-03>3", ["America/Sao_Paulo", "America/Argentina/Buenos_Aires"]]
+];
+
+function tzOptions(current) {
+  const sel = $("tz");
+  sel.innerHTML = "";
+  let found = false;
+  for (const z of ZONES) {
+    const o = document.createElement("option");
+    o.value = z[1];
+    o.textContent = z[0];
+    sel.appendChild(o);
+    if (z[1] === current) found = true;
+  }
+  if (current && !found) {
+    const o = document.createElement("option");
+    o.value = current;
+    o.textContent = current;
+    sel.appendChild(o);
+  }
+  sel.value = current;
+}
+
+/* A zone the table does not know becomes a fixed offset: right until
+ * the clocks change. */
+function browserTz() {
+  let name = "";
+  try { name = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) {}
+  const z = ZONES.find(x => x[2].includes(name));
+  if (z) return z[1];
+  const east = -new Date().getTimezoneOffset(), a = Math.abs(east), h = Math.floor(a / 60), m = a % 60;
+  if (east === 0) return "UTC0";
+  const hh = String(h).padStart(2, "0"), mm = m ? String(m).padStart(2, "0") : "";
+  return "<" + (east > 0 ? "+" : "-") + hh + mm + ">" + (east > 0 ? "-" : "") + h + (m ? ":" + mm : "");
+}
+$("tzdetect").onclick = () => {
+  tzOptions(browserTz());
+  markDirty("tz");
+};
+
 const OTA_BUSY = { checking: 1, downloading: 1, uploading: 1 };
 let otaTimer = 0;
 
@@ -466,7 +547,7 @@ $("save").onclick = async () => {
   const body = {
     device: { name: $("name").value },
     wifi: { ssid: selectedSsid },
-    time: { ntp_server: $("ntp").value },
+    time: { ntp_server: $("ntp").value, tz: $("tz").value },
     light: { soft: $("soft").checked }
   };
 
@@ -503,6 +584,7 @@ function fill(j) {
     if (j.wifi.password_set) { $("passhint").textContent = "Saved · leave empty to keep"; $("passhint").className = "hint ok"; }
   }
   if (j.time) $("ntp").value = j.time.ntp_server || DEF_NTP;
+  tzOptions(j.time && j.time.tz ? j.time.tz : "UTC0");
   if (j.light) $("soft").checked = !!j.light.soft;
 }
 

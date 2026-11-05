@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Efflorescence · Schedule</title>
+<style>
+:root {
+  --bg:#FAFAFA; --text:#1C1B1F; --muted:#6B6B70; --faint:#A0A0A5; --line:#E2E2E5; --line2:#EEEEF0;
+  --accent:#FF6F3F; --accent-tx:#fff; --error:#C62828; --field:#FFFFFF;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#1C1B1F; --text:#E6E1E5; --muted:#A3A0A8; --faint:#6C6971; --line:#2F2E34; --line2:#28272C;
+    --accent:#D96A3E; --error:#F2726D; --field:#212024;
+  }
+}
+* { box-sizing:border-box; }
+html, body { margin:0; }
+body { min-height:100vh; display:flex; flex-direction:column; background:var(--bg); color:var(--text);
+       font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+       -webkit-font-smoothing:antialiased; }
+body.dirty footer { padding-bottom:92px; }
+a { color:inherit; text-decoration:none; }
+.wrap { width:100%; max-width:1040px; margin:0 auto; padding:0 32px; }
+@media (max-width:640px) { .wrap { padding:0 20px; } }
+
+header { border-bottom:1px solid var(--line); }
+header .wrap { display:flex; align-items:center; height:56px; gap:28px; }
+header .name { font-weight:600; font-size:15px; flex:1; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+nav { display:flex; gap:22px; height:100%; }
+nav a { display:flex; align-items:center; font-size:14px; color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; }
+nav a.on { color:var(--text); border-bottom-color:var(--accent); }
+@media (max-width:560px) { header .wrap { gap:14px; } nav { gap:14px; } nav a { font-size:13px; } }
+
+.lab { font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); }
+.top { padding:30px 0 22px; }
+.clock { margin-top:10px; font-size:22px; font-weight:600; letter-spacing:-.015em; font-variant-numeric:tabular-nums; }
+.clock.err { font-size:15px; font-weight:400; letter-spacing:0; color:var(--error); }
+.next { margin-top:6px; font-size:14px; color:var(--muted); min-height:20px; font-variant-numeric:tabular-nums; }
+
+.head, .row { display:grid; grid-template-columns:22px 108px minmax(238px, 1fr) 84px 92px 84px 32px; gap:8px 14px; align-items:center; }
+.head { grid-template-areas:"en time days state bri fade rm"; font-size:12.5px; color:var(--muted); padding-bottom:8px; border-bottom:1px solid var(--line); }
+.row { grid-template-areas:"en time days state bri fade rm" ". hint hint hint hint hint hint"; padding:13px 0; border-bottom:1px solid var(--line); }
+.row.offed .c-time, .row.offed .c-days, .row.offed .c-state, .row.offed .c-bri, .row.offed .c-fade { opacity:.45; }
+.c-en { grid-area:en; } .c-time { grid-area:time; } .c-days { grid-area:days; } .c-state { grid-area:state; }
+.c-bri { grid-area:bri; } .c-fade { grid-area:fade; } .c-rm { grid-area:rm; }
+.row .hint { grid-area:hint; font-size:12.5px; color:var(--muted); min-height:0; }
+.row .hint:empty { display:none; }
+@media (max-width:820px) {
+  .head { display:none; }
+  .row { grid-template-columns:22px 1fr 1fr 1fr 32px;
+         grid-template-areas:"en time time time rm" ". days days days days" ". state bri fade ." ". hint hint hint hint"; }
+  .list { border-top:1px solid var(--line); }
+}
+
+input[type=time], input[type=number], select {
+  width:100%; height:38px; font:inherit; font-size:15px; color:var(--text); background:var(--field); border:1px solid var(--line);
+  border-radius:4px; padding:0 9px; outline:none; transition:border-color .15s; font-variant-numeric:tabular-nums; }
+input:focus, select:focus { border-color:var(--text); }
+input:disabled { opacity:.45; }
+.chk { display:flex; align-items:center; cursor:pointer; }
+.chk input { appearance:none; width:18px; height:18px; margin:0; border:1.5px solid var(--muted); border-radius:3px; background:transparent; cursor:pointer; position:relative; }
+.chk input:checked { background:var(--text); border-color:var(--text); }
+.chk input:checked::after { content:""; position:absolute; left:5px; top:1.5px; width:5px; height:9px; border:solid var(--bg); border-width:0 2px 2px 0; transform:rotate(45deg); }
+.chk input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.days { display:flex; gap:4px; }
+.day { flex:1; max-width:38px; height:38px; padding:0; font:inherit; font-size:13px; color:var(--muted); background:transparent;
+       border:1px solid var(--line); border-radius:4px; cursor:pointer; }
+.day.on { background:var(--text); border-color:var(--text); color:var(--bg); }
+.day:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.x { width:32px; height:32px; padding:0; border:0; background:none; color:var(--muted); font-size:20px; line-height:1; cursor:pointer; border-radius:4px; }
+.x:hover { color:var(--error); }
+.empty { padding:22px 0; color:var(--muted); border-bottom:1px solid var(--line); }
+
+.acts { padding:18px 0 40px; }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; font:inherit; font-size:14px; font-weight:500; padding:9px 16px;
+       border-radius:4px; border:1px solid var(--line); background:transparent; color:var(--text); cursor:pointer; }
+.btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-tx); }
+.btn.text { border-color:transparent; color:var(--muted); padding-left:8px; padding-right:8px; }
+.btn:disabled { opacity:.5; cursor:default; }
+
+.savebar { position:fixed; left:0; right:0; bottom:0; z-index:8; background:var(--bg); border-top:1px solid var(--line);
+           transform:translateY(110%); transition:transform .2s ease; }
+.savebar.show { transform:none; }
+.savebar .wrap { display:flex; align-items:center; gap:14px; min-height:64px; padding-top:8px; padding-bottom:8px; }
+.savebar .n { flex:1; font-size:14px; color:var(--muted); }
+.savebar .n.err { color:var(--error); }
+
+footer { border-top:1px solid var(--line); margin-top:auto; padding:18px 0 28px; font-size:12.5px; color:var(--faint); }
+footer .l { text-align:center; }
+footer .l + .l { margin-top:4px; }
+footer .err { color:var(--error); }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <div class="name" id="devname">Efflorescence</div>
+  <nav><a href="/main">Dashboard</a><a class="on" href="/schedule">Schedule</a><a href="/config">Settings</a><a href="/info">Device Info</a></nav>
+</div></header>
+
+<main class="wrap">
+  <div class="top">
+    <div class="lab">Schedule</div>
+    <div class="clock" id="clock">—</div>
+    <div class="next" id="next"></div>
+  </div>
+
+  <div class="head">
+    <span class="c-time">Starts at</span><span class="c-days">Days</span><span class="c-state">Light</span>
+    <span class="c-bri">Brightness, %</span><span class="c-fade">Fade, min</span>
+  </div>
+  <div class="list" id="list"></div>
+  <div class="acts"><button class="btn" type="button" id="add">Add entry</button></div>
+</main>
+
+<footer><div class="wrap">
+  <div class="l"><span id="upd">Connecting…</span><span id="fw"></span></div>
+  <div class="l">© 2026 Max Grakov, Saint Petersburg · MIT License</div>
+</div></footer>
+
+<div class="savebar" id="savebar"><div class="wrap">
+  <span class="n" id="savemsg">Unsaved changes</span>
+  <button class="btn text" type="button" id="discard">Discard</button>
+  <button class="btn primary" type="button" id="save">Save</button>
+</div></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
+
+let entries = [];
+let max = 12;
+let dirty = false;
+
+const pad = n => String(n).padStart(2, "0");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const minutesOf = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+const hhmm = m => pad(Math.floor(m / 60) % 24) + ":" + pad(m % 60);
+
+/* What the page edits: fade in minutes, brightness "" for "as it was". */
+function fromApi(e) {
+  return { enabled: !!e.enabled, days: (e.days || []).slice(), time: e.time, state: e.state,
+           brightness: e.brightness == null ? "" : String(e.brightness),
+           fade: e.transition ? String(Math.round(e.transition / 6) / 10) : "" };
+}
+function toApi(e) {
+  const on = e.state === "ON";
+  return { enabled: e.enabled, days: e.days.slice().sort((a, b) => a - b), time: e.time, state: e.state,
+           brightness: on && e.brightness !== "" ? Number(e.brightness) : null,
+           transition: Math.round(Number(e.fade || 0) * 60) };
+}
+
+function hintFor(e) {
+  const fade = Number(e.fade || 0);
+  if (!e.time || !(fade > 0)) return "";
+  const end = hhmm(minutesOf(e.time) + Math.round(fade));
+  return e.state === "ON" ? "Reaches its brightness at " + end : "Dark at " + end;
+}
+
+function rowHtml(e, i) {
+  const on = e.state === "ON";
+  let days = "";
+  for (let d = 1; d <= 7; d++) {
+    days += '<button type="button" class="day' + (e.days.includes(d) ? " on" : "") + '" data-d="' + d +
+            '" aria-label="' + DAYS[d - 1] + '">' + LETTERS[d - 1] + "</button>";
+  }
+  return '<div class="row' + (e.enabled ? "" : " offed") + '" data-i="' + i + '">' +
+    '<label class="chk c-en"><input type="checkbox" data-f="enabled"' + (e.enabled ? " checked" : "") + ' aria-label="Enabled"></label>' +
+    '<input class="c-time" type="time" data-f="time" value="' + esc(e.time) + '" aria-label="Starts at">' +
+    '<div class="days c-days">' + days + "</div>" +
+    '<select class="c-state" data-f="state" aria-label="Light"><option value="ON"' + (on ? " selected" : "") +
+    '>On</option><option value="OFF"' + (on ? "" : " selected") + ">Off</option></select>" +
+    '<input class="c-bri" type="number" data-f="brightness" min="1" max="100" placeholder="as is" value="' + esc(on ? e.brightness : "") +
+    '"' + (on ? "" : " disabled") + ' aria-label="Brightness, percent">' +
+    '<input class="c-fade" type="number" data-f="fade" min="0" max="120" step="any" placeholder="0" value="' + esc(e.fade) +
+    '" aria-label="Fade, minutes">' +
+    '<button type="button" class="x c-rm" data-rm="1" aria-label="Remove">×</button>' +
+    '<div class="hint">' + hintFor(e) + "</div></div>";
+}
+
+function render() {
+  $("list").innerHTML = entries.length ? entries.map(rowHtml).join("") : '<div class="empty">No entries.</div>';
+  $("add").disabled = entries.length >= max;
+}
+
+function markDirty() {
+  dirty = true;
+  $("savemsg").textContent = "Unsaved changes";
+  $("savemsg").className = "n";
+  $("savebar").classList.add("show");
+  document.body.classList.add("dirty");
+}
+function markClean() {
+  dirty = false;
+  $("savebar").classList.remove("show");
+  document.body.classList.remove("dirty");
+}
+
+function addEntry() {
+  if (entries.length >= max) return;
+  entries.push({ enabled: true, days: [1, 2, 3, 4, 5, 6, 7], time: "07:00", state: "ON", brightness: "", fade: "" });
+  render();
+  markDirty();
+}
+function removeEntry(i) {
+  entries.splice(i, 1);
+  render();
+  markDirty();
+}
+function toggleDay(i, d) {
+  const e = entries[i], k = e.days.indexOf(d);
+  if (k >= 0) e.days.splice(k, 1); else e.days.push(d);
+  render();
+  markDirty();
+}
+function setField(i, f, v) {
+  entries[i][f] = v;
+  markDirty();
+  /* Typing must not lose the caret: only what depends on the field is redrawn. */
+  if (f === "enabled" || f === "state") render();
+  else {
+    const row = $("list").querySelector('.row[data-i="' + i + '"] .hint');
+    if (row) row.textContent = hintFor(entries[i]);
+  }
+}
+
+function renderClock(j) {
+  const c = j.clock, el = $("clock");
+  if (!c || !c.set || !c.local) {
+    el.textContent = "The clock is not set yet. Nothing runs until the lamp reaches a time server.";
+    el.className = "clock err";
+    $("next").textContent = "";
+    return;
+  }
+  el.className = "clock";
+  el.textContent = DAYS[c.weekday - 1] + " " + c.local.slice(11, 16);
+  let t = "Time zone " + c.tz;
+  if (j.next && j.entries[j.next.entry]) {
+    const e = j.entries[j.next.entry];
+    const at = (c.weekday - 1) * 1440 + minutesOf(c.local.slice(11, 16)) + j.next.in_minutes;
+    t += " · next: " + DAYS[Math.floor(at / 1440) % 7] + " " + e.time + ", " + (e.state === "ON" ? "on" : "off");
+  } else {
+    t += " · nothing scheduled";
+  }
+  $("next").textContent = t;
+}
+
+function fill(j) {
+  max = j.max || max;
+  entries = (j.entries || []).map(fromApi);
+  render();
+  renderClock(j);
+  markClean();
+  $("upd").textContent = "Updated " + new Date().toTimeString().slice(0, 8);
+  $("upd").className = "";
+}
+
+async function load() {
+  try {
+    const r = await fetch("/api/v1/schedule");
+    const j = await r.json();
+    if (dirty) renderClock(j); else fill(j);
+  } catch (e) {
+    $("upd").textContent = "Device not reachable";
+    $("upd").className = "err";
+  }
+}
+
+async function save() {
+  $("save").disabled = true;
+  $("savemsg").textContent = "Saving…";
+  $("savemsg").className = "n";
+  try {
+    const r = await fetch("/api/v1/schedule", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entries: entries.map(toApi) })
+    });
+    const j = await r.json();
+    if (r.ok) fill(j);
+    else { $("savemsg").textContent = j.error || "Save failed."; $("savemsg").className = "n err"; }
+  } catch (e) {
+    $("savemsg").textContent = "Device not reachable.";
+    $("savemsg").className = "n err";
+  }
+  $("save").disabled = false;
+}
+
+async function loadStatus() {
+  try {
+    const r = await fetch("/api/v1/status");
+    const j = await r.json();
+    if (j.device) {
+      document.title = j.device.name + " · Schedule";
+      $("devname").textContent = j.device.name;
+      $("fw").textContent = " · Firmware " + j.device.firmware + " · ESP-IDF " + j.device.idf;
+    }
+  } catch (e) {  }
+}
+
+function rowOf(t) {
+  const row = t.closest ? t.closest(".row") : null;
+  return row ? Number(row.dataset.i) : -1;
+}
+$("list").addEventListener("click", ev => {
+  const t = ev.target, i = rowOf(t);
+  if (i < 0) return;
+  if (t.dataset.d) toggleDay(i, Number(t.dataset.d));
+  else if (t.dataset.rm) removeEntry(i);
+});
+function onField(ev) {
+  const t = ev.target, i = rowOf(t);
+  if (i < 0 || !t.dataset.f) return;
+  setField(i, t.dataset.f, t.type === "checkbox" ? t.checked : t.value);
+}
+$("list").addEventListener("input", onField);
+$("list").addEventListener("change", onField);
+$("add").onclick = addEntry;
+$("save").onclick = save;
+$("discard").onclick = () => { dirty = false; load(); };
+
+load();
+loadStatus();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

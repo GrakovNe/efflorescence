@@ -65,8 +65,9 @@ bool config_merge(const cJSON *root, appconf_t *c, char *err, size_t err_sz)
                         merge_str(o, "password", c->wifi_password,
                                   sizeof c->wifi_password, err, err_sz)));
     ok = ok && section(root, "time", &o, err, err_sz) &&
-         (o == NULL || merge_str(o, "ntp_server", c->ntp_server,
-                                 sizeof c->ntp_server, err, err_sz));
+         (o == NULL || (merge_str(o, "ntp_server", c->ntp_server,
+                                  sizeof c->ntp_server, err, err_sz) &&
+                        merge_str(o, "tz", c->tz, sizeof c->tz, err, err_sz)));
     ok = ok && section(root, "light", &o, err, err_sz) &&
          (o == NULL || merge_bool(o, "soft", &c->soft_switch, err, err_sz));
     return ok && appconf_validate(c, err, err_sz);

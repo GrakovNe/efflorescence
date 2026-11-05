@@ -16,14 +16,17 @@ extern "C" {
 #define APPCONF_SSID_MAX 32
 #define APPCONF_PASS_MAX 64
 #define APPCONF_HOST_MAX 64
+#define APPCONF_TZ_MAX   47
 
 #define APPCONF_NTP_DEFAULT "pool.ntp.org"
+#define APPCONF_TZ_DEFAULT  "UTC0"
 
 typedef struct {
     char device_name[APPCONF_NAME_MAX + 1];
     char wifi_ssid[APPCONF_SSID_MAX + 1];
     char wifi_password[APPCONF_PASS_MAX + 1];
     char ntp_server[APPCONF_HOST_MAX + 1];
+    char tz[APPCONF_TZ_MAX + 1]; /* POSIX TZ string, "MSK-3" */
 
     bool soft_switch; /* fade on and off instead of jumping */
 
