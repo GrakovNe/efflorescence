@@ -76,6 +76,17 @@ IDF_SKIP_CHECK_SUBMODULES=1 idf.py -B build-rb \
 curl --data-binary @build-rb/efflorescence.bin http://192.168.1.91/api/v1/ota
 ```
 
+MQTT: the broker is `192.168.1.102:1883`, anonymous; the lamp's prefix
+is `efflorescence/c6e0`.
+
+```bash
+mosquitto_sub -h 192.168.1.102 -v -t 'efflorescence/#' \
+  -t 'homeassistant/+/+/config' | grep -E '^efflorescence/|efflorescence_c6e0'
+mosquitto_pub -h 192.168.1.102 -t efflorescence/c6e0/set -m TOGGLE
+mosquitto_pub -h 192.168.1.102 -t efflorescence/c6e0/set \
+  -m '{"state":"ON","brightness":40,"transition":2}'
+```
+
 Console capture (opening the port resets the board, so every capture
 starts at boot and then follows the running device):
 
@@ -180,6 +191,24 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
   release build (`v1.0.<run>`), `git describe` otherwise. Only versions
   of the form `v1.0.123` count as releases; a development build is
   offered any release and never offered as one.
+- MQTT topics under `<prefix>/`: `set` (a light command as JSON, or the
+  bare words ON, OFF, TOGGLE), `state` (retained), `get` (any payload
+  republishes the state), `availability` (online, offline by last
+  will), `event` (a finished series of two or more taps, not retained),
+  `update` (retained, the Home Assistant update payload) and
+  `update/install` (payload `install`). Discovery announces a light, a
+  soft on/off switch, a taps event and a firmware update entity;
+  `unique_id`s are bound to the device id, never to the name, so a
+  rename keeps the entities. Turning discovery off removes them. The
+  payloads are built by the pure `ha_discovery.c`.
+- `esp_mqtt_client_publish/subscribe` only from the `mqtt_pub` task. The
+  esp-mqtt event handler only sets flags and posts to its queue; a light
+  command received there is applied by `mqtt_pub`, not in the handler.
+  State is published at most every 250 ms: a held finger changes the
+  brightness a hundred times a second.
+- The lamp looks for a release by itself two minutes after boot and then
+  once a day, so Home Assistant can offer it; a failed automatic check
+  leaves no error behind.
 - The schedule is the pure `schedule.c` (validation, what is due, what
   is next, JSON both ways); `sched_mgr.c` only ticks once a minute and
   stores the list as one NVS blob. `POST /api/v1/schedule` replaces the
@@ -204,9 +233,6 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
 
 - Power: auto light sleep while the lamp is off and Wi-Fi stays
   associated; no sleep while the LED is on.
-- MQTT: `<prefix>/set`, retained `<prefix>/state`, `<prefix>/get`, Home
-  Assistant discovery (`light`, a `battery_low` binary sensor, an
-  `update` entity), tap series as events.
 - Release workflow: build with `APP_VERSION=v1.0.<run>`, publish
   `efflorescence-app.bin` and `ota.json` (`{"version", "app"}`) on GitHub
   Pages at the URL in `APP_UPDATE_URL`, plus the web flasher.

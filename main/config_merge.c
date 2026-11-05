@@ -4,6 +4,7 @@
  */
 #include "config_merge.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -42,6 +43,41 @@ static bool merge_bool(const cJSON *obj, const char *key, bool *dst,
     return true;
 }
 
+static bool merge_u16(const cJSON *obj, const char *key, uint16_t *dst,
+                      int min, int max, char *err, size_t err_sz)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
+    if (v == NULL) {
+        return true;
+    }
+    if (!cJSON_IsNumber(v) || v->valuedouble < min || v->valuedouble > max ||
+        v->valuedouble != floor(v->valuedouble)) {
+        snprintf(err, err_sz, "\"%s\" must be an integer between %d and %d",
+                 key, min, max);
+        return false;
+    }
+    *dst = (uint16_t)v->valuedouble;
+    return true;
+}
+
+static bool merge_mqtt(const cJSON *mq, appconf_t *c, char *err, size_t err_sz)
+{
+    return merge_bool(mq, "enabled", &c->mqtt_enabled, err, err_sz) &&
+           merge_str(mq, "host", c->mqtt_host, sizeof c->mqtt_host, err, err_sz) &&
+           merge_u16(mq, "port", &c->mqtt_port, 1, 65535, err, err_sz) &&
+           merge_str(mq, "username", c->mqtt_username, sizeof c->mqtt_username,
+                     err, err_sz) &&
+           merge_str(mq, "password", c->mqtt_password, sizeof c->mqtt_password,
+                     err, err_sz) &&
+           merge_bool(mq, "tls", &c->mqtt_tls, err, err_sz) &&
+           merge_str(mq, "ca_cert", c->mqtt_ca_cert, sizeof c->mqtt_ca_cert,
+                     err, err_sz) &&
+           merge_bool(mq, "skip_verify", &c->mqtt_skip_verify, err, err_sz) &&
+           merge_str(mq, "topic_prefix", c->mqtt_prefix, sizeof c->mqtt_prefix,
+                     err, err_sz) &&
+           merge_bool(mq, "discovery", &c->mqtt_discovery, err, err_sz);
+}
+
 static bool section(const cJSON *root, const char *key, const cJSON **out,
                     char *err, size_t err_sz)
 {
@@ -70,5 +106,7 @@ bool config_merge(const cJSON *root, appconf_t *c, char *err, size_t err_sz)
                         merge_str(o, "tz", c->tz, sizeof c->tz, err, err_sz)));
     ok = ok && section(root, "light", &o, err, err_sz) &&
          (o == NULL || merge_bool(o, "soft", &c->soft_switch, err, err_sz));
+    ok = ok && section(root, "mqtt", &o, err, err_sz) &&
+         (o == NULL || merge_mqtt(o, c, err, err_sz));
     return ok && appconf_validate(c, err, err_sz);
 }

@@ -14,6 +14,7 @@
 
 #include "gesture.h"
 #include "lamp.h"
+#include "mqtt_mgr.h"
 #include "reset.h"
 #include "wifi_mgr.h"
 
@@ -43,6 +44,7 @@ static void dispatch(gesture_event_t ev, uint8_t taps)
         break;
     case GESTURE_SERIES_END:
         ESP_LOGI(TAG, "series of %u", (unsigned)taps);
+        mqtt_mgr_taps(taps);
         break;
     case GESTURE_HOLD_BEGIN:
         ESP_LOGI(TAG, "hold");

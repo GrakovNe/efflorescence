@@ -10,6 +10,7 @@
 #include "appconf.h"
 #include "lamp.h"
 #include "mdns.h"
+#include "mqtt_mgr.h"
 #include "ota.h"
 #include "reset.h"
 #include "sched_mgr.h"
@@ -62,8 +63,9 @@ void app_main(void)
     settings_load(cfg, device_id);
     ESP_LOGI(TAG, "device %s: name \"%s\", hostname %s.local",
              device_id, cfg->device_name, cfg->hostname);
-    ESP_LOGI(TAG, "wifi: %s, ntp: %s, zone %s",
+    ESP_LOGI(TAG, "wifi: %s, mqtt: %s, ntp: %s, zone %s",
              cfg->wifi_ssid[0] != '\0' ? cfg->wifi_ssid : "not configured",
+             cfg->mqtt_enabled ? cfg->mqtt_host : "disabled",
              cfg->ntp_server, cfg->tz);
 
     /* The light and the sensor come first: the lamp works without a
@@ -77,4 +79,5 @@ void app_main(void)
     sched_mgr_start();
     mdns_start(cfg);
     ota_start(cfg);
+    mqtt_mgr_start(cfg, device_id);
 }

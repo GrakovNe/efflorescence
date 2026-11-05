@@ -41,6 +41,10 @@ static struct {
     int32_t raw_duty;      /* < 0: no override */
     uint32_t want_freq_hz;
 
+    void (*volatile changed)(void);
+    uint32_t told_seq;
+    bool told_soft;
+
     uint32_t saved_seq;
     uint32_t seen_seq;
     int64_t changed_ms;
@@ -124,7 +128,16 @@ static void lamp_task(void *arg)
                 wait = pdMS_TO_TICKS(left_ms);
             }
         }
+        uint32_t seq = ctx.core.seq;
+        bool soft = ctx.cfg->soft_switch;
         xSemaphoreGive(ctx.lock);
+
+        void (*changed)(void) = ctx.changed;
+        if (changed != NULL && (seq != ctx.told_seq || soft != ctx.told_soft)) {
+            ctx.told_seq = seq;
+            ctx.told_soft = soft;
+            changed();
+        }
 
         ulTaskNotifyTake(pdTRUE, wait);
     }
@@ -219,6 +232,11 @@ void lamp_get(lamp_status_t *out)
     xSemaphoreGive(ctx.lock);
 }
 
+void lamp_set_listener(void (*changed)(void))
+{
+    ctx.changed = changed;
+}
+
 void lamp_flush(void)
 {
     if (ctx.lock == NULL) {
@@ -257,6 +275,8 @@ void lamp_start(appconf_t *cfg)
     lamp_core_init(&ctx.core, on, brightness);
     ctx.saved_seq = ctx.core.seq;
     ctx.seen_seq = ctx.core.seq;
+    ctx.told_seq = ctx.core.seq;
+    ctx.told_soft = cfg->soft_switch;
     ctx.raw_duty = -1;
     ctx.freq_hz = CONFIG_APP_PWM_FREQ_HZ;
     ctx.want_freq_hz = CONFIG_APP_PWM_FREQ_HZ;

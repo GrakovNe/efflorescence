@@ -17,9 +17,14 @@ extern "C" {
 #define APPCONF_PASS_MAX 64
 #define APPCONF_HOST_MAX 64
 #define APPCONF_TZ_MAX   47
+#define APPCONF_USER_MAX   32
+#define APPCONF_PREFIX_MAX 64
+#define APPCONF_CERT_MAX   3072
+#define APPCONF_TOPIC_MAX  (APPCONF_PREFIX_MAX + 24)
 
 #define APPCONF_NTP_DEFAULT "pool.ntp.org"
 #define APPCONF_TZ_DEFAULT  "UTC0"
+#define APPCONF_MQTT_PORT_PLAIN 1883
 
 typedef struct {
     char device_name[APPCONF_NAME_MAX + 1];
@@ -29,6 +34,17 @@ typedef struct {
     char tz[APPCONF_TZ_MAX + 1]; /* POSIX TZ string, "MSK-3" */
 
     bool soft_switch; /* fade on and off instead of jumping */
+
+    bool     mqtt_enabled;
+    char     mqtt_host[APPCONF_HOST_MAX + 1];
+    uint16_t mqtt_port;
+    char     mqtt_username[APPCONF_USER_MAX + 1];
+    char     mqtt_password[APPCONF_PASS_MAX + 1];
+    bool     mqtt_tls;
+    char     mqtt_ca_cert[APPCONF_CERT_MAX + 1];
+    bool     mqtt_skip_verify;
+    char     mqtt_prefix[APPCONF_PREFIX_MAX + 1];
+    bool     mqtt_discovery;
 
     char hostname[APPCONF_HOST_MAX + 1];
 } appconf_t;
@@ -49,6 +65,10 @@ bool appconf_validate(const appconf_t *c, char *err, size_t err_sz);
 /* Resets every field group that fails validation to its default.
  * Returns the number of groups reset. */
 int appconf_sanitize(appconf_t *c, const char device_id[5]);
+
+/* "<prefix>/<leaf>": state, set, get, availability, event, update. */
+void appconf_topic(const appconf_t *c, const char *leaf, char *out,
+                   size_t out_sz);
 
 #ifdef __cplusplus
 }

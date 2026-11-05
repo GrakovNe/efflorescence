@@ -23,6 +23,16 @@ static const char *TAG = "settings";
 #define KEY_NTP   "ntp"
 #define KEY_TZ    "tz"
 #define KEY_SOFT  "soft"
+#define KEY_MQ_EN   "mq_en"
+#define KEY_MQ_HOST "mq_host"
+#define KEY_MQ_PORT "mq_port"
+#define KEY_MQ_USER "mq_user"
+#define KEY_MQ_PASS "mq_pass"
+#define KEY_MQ_TLS  "mq_tls"
+#define KEY_MQ_CA   "mq_ca"
+#define KEY_MQ_SKIP "mq_skip"
+#define KEY_MQ_PFX  "mq_pfx"
+#define KEY_MQ_DISC "mq_disc"
 
 #define KEY_ON  "on"
 #define KEY_BRI "bri"
@@ -74,6 +84,14 @@ static void get_bool(nvs_handle_t h, const char *key, bool *out)
     }
 }
 
+static void get_u16(nvs_handle_t h, const char *key, uint16_t *out)
+{
+    uint16_t u16;
+    if (nvs_get_u16(h, key, &u16) == ESP_OK) {
+        *out = u16;
+    }
+}
+
 void settings_load(appconf_t *c, const char device_id[5])
 {
     appconf_defaults(c, device_id);
@@ -95,6 +113,16 @@ void settings_load(appconf_t *c, const char device_id[5])
     get_str(h, KEY_NTP, c->ntp_server, sizeof c->ntp_server);
     get_str(h, KEY_TZ, c->tz, sizeof c->tz);
     get_bool(h, KEY_SOFT, &c->soft_switch);
+    get_bool(h, KEY_MQ_EN, &c->mqtt_enabled);
+    get_str(h, KEY_MQ_HOST, c->mqtt_host, sizeof c->mqtt_host);
+    get_u16(h, KEY_MQ_PORT, &c->mqtt_port);
+    get_str(h, KEY_MQ_USER, c->mqtt_username, sizeof c->mqtt_username);
+    get_str(h, KEY_MQ_PASS, c->mqtt_password, sizeof c->mqtt_password);
+    get_bool(h, KEY_MQ_TLS, &c->mqtt_tls);
+    get_str(h, KEY_MQ_CA, c->mqtt_ca_cert, sizeof c->mqtt_ca_cert);
+    get_bool(h, KEY_MQ_SKIP, &c->mqtt_skip_verify);
+    get_str(h, KEY_MQ_PFX, c->mqtt_prefix, sizeof c->mqtt_prefix);
+    get_bool(h, KEY_MQ_DISC, &c->mqtt_discovery);
     nvs_close(h);
 
     appconf_derive(c, device_id);
@@ -127,6 +155,16 @@ esp_err_t settings_save(const appconf_t *c)
     PUT(nvs_set_str(h, KEY_NTP, c->ntp_server));
     PUT(nvs_set_str(h, KEY_TZ, c->tz));
     PUT(nvs_set_u8(h, KEY_SOFT, c->soft_switch));
+    PUT(nvs_set_u8(h, KEY_MQ_EN, c->mqtt_enabled));
+    PUT(nvs_set_str(h, KEY_MQ_HOST, c->mqtt_host));
+    PUT(nvs_set_u16(h, KEY_MQ_PORT, c->mqtt_port));
+    PUT(nvs_set_str(h, KEY_MQ_USER, c->mqtt_username));
+    PUT(nvs_set_str(h, KEY_MQ_PASS, c->mqtt_password));
+    PUT(nvs_set_u8(h, KEY_MQ_TLS, c->mqtt_tls));
+    PUT(nvs_set_str(h, KEY_MQ_CA, c->mqtt_ca_cert));
+    PUT(nvs_set_u8(h, KEY_MQ_SKIP, c->mqtt_skip_verify));
+    PUT(nvs_set_str(h, KEY_MQ_PFX, c->mqtt_prefix));
+    PUT(nvs_set_u8(h, KEY_MQ_DISC, c->mqtt_discovery));
     PUT(nvs_commit(h));
 #undef PUT
 

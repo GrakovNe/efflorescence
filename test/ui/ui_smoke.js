@@ -91,6 +91,7 @@ function check(cond, name) {
     light: { ...light, pwm: { freq_hz: 1250, bits: 14, duty: 4915, duty_min: 163, duty_max: 16383, raw: false } },
     wifi: { connected: true, ap_up: false, ssid: "Home", bssid: "aa:bb:cc:dd:ee:ff", rssi: -58, channel: 6,
             ip: "192.168.1.42", gateway: "192.168.1.1", last_disconnect: "other" },
+    mqtt: { enabled: true, connected: true, last_publish: now - 10, errors: 0 },
   };
 
   const m = await runPage(path.join(WEB, "main.html"), { "/api/v1/light": light, "/api/v1/status": status });
@@ -149,6 +150,11 @@ function check(cond, name) {
     wifi: { ssid: "Home", password_set: true },
     time: { ntp_server: "pool.ntp.org", tz: "MSK-3" },
     light: { soft: true },
+    mqtt: {
+      enabled: true, host: "mqtt.test", port: 1884, username: "u",
+      password_set: true, tls: false, ca_cert_set: true, skip_verify: false,
+      topic_prefix: "efflorescence/c6e0", discovery: true,
+    },
   };
   const i = await runPage(path.join(WEB, "info.html"), { "/api/v1/status": status, "/api/v1/config": cfg });
   check(i.els["s-light"].textContent === "On", "info: light state");
@@ -161,6 +167,10 @@ function check(cond, name) {
   check(i.els["v-rssi"].textContent === "-58 dBm", "info: rssi row");
   check(i.els["v-host"].textContent === "bedside.local", "info: hostname row");
   check(i.els["v-ntp"].textContent === "pool.ntp.org", "info: ntp from config");
+  check(i.els["s-mqtt"].textContent === "Connected" && i.els["s-mqtt"].className === "state ok", "info: mqtt connected");
+  check(i.els["v-broker"].textContent === "mqtt.test : 1884", "info: broker from config");
+  check(i.els["v-topics"].textContent === "efflorescence/c6e0/…", "info: topic prefix");
+  check(i.els["v-pub"].textContent === "10 s ago", "info: last publish");
   check(i.els["v-up"].textContent === "1 h 27 min", "info: uptime");
   check(i.els["v-tz"].textContent === "MSK-3", "info: time zone");
   check(i.els["v-now"].textContent === "2026-11-05 23:41:07", "info: device local time");
@@ -174,6 +184,7 @@ function check(cond, name) {
                 light: { state: "OFF", brightness: 60, soft: false,
                          pwm: { freq_hz: 400, bits: 14, duty: 200, duty_min: 163, duty_max: 16383, raw: true } },
                 wifi: { ...status.wifi, connected: false, rssi: null, channel: null, ip: null, gateway: null },
+                mqtt: { enabled: false, connected: false, last_publish: null, errors: 0 },
                 time: { ...status.time, synced: false, timestamp: null, local: null, weekday: null } };
   const i2 = await runPage(path.join(WEB, "info.html"), { "/api/v1/status": st2, "/api/v1/config": cfg });
   check(i2.els["s-light"].textContent === "Off", "info: light off");
@@ -183,6 +194,7 @@ function check(cond, name) {
   check(i2.els["s-wifi"].textContent === "No connection", "info: lost wifi");
   check(i2.els["s-wifi"].className === "state err", "info: lost wifi is red");
   check(i2.els["v-ip"].textContent === "—", "info: no ip dash");
+  check(i2.els["s-mqtt"].textContent === "Off" && i2.els["s-mqtt"].className === "state", "info: mqtt off is neutral");
   check(i2.els["s-time"].textContent === "Not synced", "info: time not synced");
   check(i2.els["v-now"].textContent === "—", "info: no device time");
 
@@ -205,6 +217,14 @@ function check(cond, name) {
   check(s.els.passhint.textContent.includes("leave empty"), "setup: pass hint");
   check(s.els.ntp.value === "pool.ntp.org", "setup: ntp");
   check(s.els.soft.checked === true, "setup: soft switch");
+  check(s.els.mq_en.checked === true, "setup: mqtt enabled");
+  check(s.els.mq_host.value === "mqtt.test", "setup: mqtt host");
+  check(s.els.mq_port.value === 1884, "setup: mqtt port");
+  check(s.els.mq_pfx.value === "efflorescence/c6e0", "setup: topic prefix");
+  check(s.els.mqpfxhint.textContent.includes("efflorescence/c6e0/set") && s.els.mqpfxhint.textContent.includes("efflorescence/c6e0/state"), "setup: topic preview");
+  check(s.els.mq_disc.checked === true, "setup: discovery");
+  check(s.els.mq_skip.disabled === true, "setup: skip disabled without TLS");
+  check(s.els.cawrap.style.display === "none", "setup: CA hidden without TLS");
   check(s.els.tz.value === "MSK-3", "setup: time zone selected");
   check(s.els.tz.children.length > 20 && s.els.tz.children.every(o => o.value !== "MSK-3" || o.textContent.includes("Moscow")), "setup: zone list filled");
   check(s.els.nets.children.length === 2, "setup: scan list rendered");
@@ -238,6 +258,8 @@ function check(cond, name) {
   check(saved && saved.wifi.ssid === "Home" && !("password" in saved.wifi), "setup: untouched password is not sent");
   check(saved && saved.time.ntp_server === "pool.ntp.org", "setup: posts ntp");
   check(saved && saved.time.tz === "MSK-3", "setup: posts the time zone");
+  check(saved && saved.mqtt.topic_prefix === "efflorescence/c6e0" && saved.mqtt.port === 1884, "setup: posts mqtt");
+  check(saved && !("password" in saved.mqtt) && !("ca_cert" in saved.mqtt), "setup: untouched mqtt secrets are not sent");
 
   const sz = await runPage(path.join(WEB, "setup.html"), {
     "/api/v1/status": status, "/api/v1/config": { ...cfg, time: { ntp_server: "pool.ntp.org", tz: "<+0545>-5:45" } },
@@ -331,11 +353,13 @@ function check(cond, name) {
 
   const s4 = await runPage(path.join(WEB, "setup.html"), {
     "/api/v1/status": { ...status, mode: "provisioning" },
-    "/api/v1/config": { ...cfg, wifi: { ssid: "", password_set: false } },
+    "/api/v1/config": { ...cfg, wifi: { ssid: "", password_set: false }, mqtt: { ...cfg.mqtt, enabled: false } },
     "/api/v1/wifi/scan": { scanning: false, networks: [] },
   });
   check(s4.els.h1.textContent === "Set up Efflorescence", "setup: first-run title");
   check(s4.els.nav.style.display === "none", "setup: first-run hides nav");
+  check(s4.els.mq_disc.disabled === true, "setup: MQTT off disables discovery");
+  check(s4.els.mqbody.className.includes("dim"), "setup: MQTT off dims fields");
 
   console.log(fails === 0 ? "ALL OK" : fails + " FAILURES");
   process.exit(fails ? 1 : 0);

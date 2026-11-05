@@ -88,6 +88,29 @@ static void test_soft_and_all(void)
     CHECK(c.state == LIGHT_ON && c.brightness == 40 && c.transition_ms == 2000);
 }
 
+static void test_text(void)
+{
+    light_cmd_t c;
+    char err[96];
+    CHECK(light_cmd_parse_text("ON", 2, &c, err, sizeof err) && c.state == LIGHT_ON);
+    CHECK(c.brightness == 0 && c.transition_ms == -1 && c.soft == -1);
+    CHECK(light_cmd_parse_text("OFF\n", 4, &c, err, sizeof err) && c.state == LIGHT_OFF);
+    CHECK(light_cmd_parse_text("TOGGLE", 6, &c, err, sizeof err) &&
+          c.state == LIGHT_TOGGLE);
+
+    /* MQTT payloads are not terminated: only len bytes count. */
+    const char *json = "{\"state\":\"ON\",\"brightness\":40}garbage";
+    CHECK(light_cmd_parse_text(json, 30, &c, err, sizeof err));
+    CHECK(c.state == LIGHT_ON && c.brightness == 40);
+    CHECK(light_cmd_parse_text("ONLINE", 2, &c, err, sizeof err) && c.state == LIGHT_ON);
+
+    CHECK(!light_cmd_parse_text("on", 2, &c, err, sizeof err));
+    CHECK(strstr(err, "neither JSON") != NULL);
+    CHECK(!light_cmd_parse_text("", 0, &c, err, sizeof err));
+    CHECK(!light_cmd_parse_text("{\"brightness\":500}", 18, &c, err, sizeof err));
+    CHECK(strstr(err, "between 1 and 100") != NULL);
+}
+
 static void test_state_json(void)
 {
     cJSON *o = light_state_json(true, 60, false);
@@ -111,6 +134,7 @@ int main(void)
     test_brightness();
     test_transition();
     test_soft_and_all();
+    test_text();
     test_state_json();
     REPORT();
 }

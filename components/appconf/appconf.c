@@ -48,6 +48,20 @@ static bool host_chars_ok(const char *s)
     return true;
 }
 
+static bool topic_ok(const char *s)
+{
+    if (s[0] == '\0') {
+        return false;
+    }
+    for (const char *p = s; *p != '\0'; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (c < 0x21 || c > 0x7e || c == '+' || c == '#') {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool tz_ok(const char *s)
 {
     if (s[0] == '\0') {
@@ -120,12 +134,21 @@ void appconf_defaults(appconf_t *c, const char device_id[5])
     snprintf(c->ntp_server, sizeof c->ntp_server, "%s", APPCONF_NTP_DEFAULT);
     snprintf(c->tz, sizeof c->tz, "%s", APPCONF_TZ_DEFAULT);
     c->soft_switch = true;
+    c->mqtt_port = APPCONF_MQTT_PORT_PLAIN;
+    snprintf(c->mqtt_prefix, sizeof c->mqtt_prefix, "efflorescence/%s", device_id);
+    c->mqtt_discovery = true;
     appconf_derive(c, device_id);
 }
 
 void appconf_derive(appconf_t *c, const char device_id[5])
 {
     appconf_hostname(c->device_name, device_id, c->hostname, sizeof c->hostname);
+}
+
+void appconf_topic(const appconf_t *c, const char *leaf, char *out,
+                   size_t out_sz)
+{
+    snprintf(out, out_sz, "%s/%s", c->mqtt_prefix, leaf);
 }
 
 bool appconf_validate(const appconf_t *c, char *err, size_t err_sz)
@@ -184,6 +207,48 @@ bool appconf_validate(const appconf_t *c, char *err, size_t err_sz)
         BAD("Time zone must be a POSIX TZ string without spaces.");
     }
 
+    if (c->mqtt_enabled) {
+        if (!str_fits(c->mqtt_host, APPCONF_HOST_MAX)) {
+            BAD("MQTT host is too long (max %d).", APPCONF_HOST_MAX);
+        }
+        if (c->mqtt_host[0] == '\0') {
+            BAD("MQTT host is empty.");
+        }
+        if (!host_chars_ok(c->mqtt_host)) {
+            BAD("MQTT host has invalid characters.");
+        }
+        if (c->mqtt_port == 0) {
+            BAD("MQTT port must be 1-65535.");
+        }
+        if (!str_fits(c->mqtt_username, APPCONF_USER_MAX)) {
+            BAD("MQTT user is too long (max %d).", APPCONF_USER_MAX);
+        }
+        if (!is_printable_ascii(c->mqtt_username)) {
+            BAD("MQTT user must be printable ASCII.");
+        }
+        if (!str_fits(c->mqtt_password, APPCONF_PASS_MAX)) {
+            BAD("MQTT password is too long (max %d).", APPCONF_PASS_MAX);
+        }
+        if (!is_printable_ascii(c->mqtt_password)) {
+            BAD("MQTT password must be printable ASCII.");
+        }
+    }
+
+    if (!str_fits(c->mqtt_prefix, APPCONF_PREFIX_MAX) ||
+        !topic_ok(c->mqtt_prefix) ||
+        c->mqtt_prefix[strlen(c->mqtt_prefix) - 1] == '/') {
+        BAD("MQTT topic prefix is empty or invalid (max %d, no spaces, "
+            "+ # or trailing /).", APPCONF_PREFIX_MAX);
+    }
+
+    if (!str_fits(c->mqtt_ca_cert, APPCONF_CERT_MAX)) {
+        BAD("CA certificate is too long (max %d).", APPCONF_CERT_MAX);
+    }
+    if (c->mqtt_ca_cert[0] != '\0' &&
+        strstr(c->mqtt_ca_cert, "-----BEGIN") == NULL) {
+        BAD("CA certificate does not look like PEM.");
+    }
+
     return true;
 #undef BAD
 }
@@ -214,10 +279,33 @@ static void copy_light(appconf_t *dst, const appconf_t *src)
     dst->soft_switch = src->soft_switch;
 }
 
+static void copy_mqtt_link(appconf_t *dst, const appconf_t *src)
+{
+    dst->mqtt_enabled = src->mqtt_enabled;
+    memcpy(dst->mqtt_host, src->mqtt_host, sizeof dst->mqtt_host);
+    dst->mqtt_port = src->mqtt_port;
+    memcpy(dst->mqtt_username, src->mqtt_username, sizeof dst->mqtt_username);
+    memcpy(dst->mqtt_password, src->mqtt_password, sizeof dst->mqtt_password);
+    dst->mqtt_tls = src->mqtt_tls;
+    dst->mqtt_skip_verify = src->mqtt_skip_verify;
+    dst->mqtt_discovery = src->mqtt_discovery;
+}
+
+static void copy_mqtt_prefix(appconf_t *dst, const appconf_t *src)
+{
+    memcpy(dst->mqtt_prefix, src->mqtt_prefix, sizeof dst->mqtt_prefix);
+}
+
+static void copy_mqtt_ca(appconf_t *dst, const appconf_t *src)
+{
+    memcpy(dst->mqtt_ca_cert, src->mqtt_ca_cert, sizeof dst->mqtt_ca_cert);
+}
+
 int appconf_sanitize(appconf_t *c, const char device_id[5])
 {
     static void (*const groups[])(appconf_t *, const appconf_t *) = {
         copy_device_name, copy_wifi, copy_ntp, copy_tz, copy_light,
+        copy_mqtt_link, copy_mqtt_prefix, copy_mqtt_ca,
     };
     char err[128];
     if (appconf_validate(c, err, sizeof err)) {
@@ -226,7 +314,7 @@ int appconf_sanitize(appconf_t *c, const char device_id[5])
 
     /* Defaults validate and a group is taken only if the result still
      * does, so the outcome is valid whatever was stored. */
-    appconf_t good, next;
+    static appconf_t good, next;   /* too big for the stack */
     appconf_defaults(&good, device_id);
     int reset = 0;
     for (size_t g = 0; g < sizeof groups / sizeof groups[0]; g++) {

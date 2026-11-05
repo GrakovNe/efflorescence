@@ -37,6 +37,12 @@ static const char *TAG = "ota";
 #define RESTART_DELAY_MS 1500
 #define HEALTH_POLL_MS   1000
 
+/* The lamp looks for a release by itself so that Home Assistant can
+ * offer it; nobody is told when such a check fails. */
+#define AUTO_CHECK_FIRST_MS (2 * 60 * 1000)
+#define AUTO_CHECK_RETRY_MS (10 * 60 * 1000)
+#define AUTO_CHECK_EVERY_MS (24 * 60 * 60 * 1000)
+
 /* Where the application description sits in an image file. */
 #define DESC_OFFSET (sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t))
 #define HEAD_SIZE   (DESC_OFFSET + sizeof(esp_app_desc_t))
@@ -256,9 +262,20 @@ static void do_install(const char *url)
 static void ota_task(void *arg)
 {
     (void)arg;
+    TickType_t wait = pdMS_TO_TICKS(AUTO_CHECK_FIRST_MS);
     for (;;) {
         cmd_t cmd;
-        if (xQueueReceive(ctx.queue, &cmd, portMAX_DELAY) != pdTRUE) {
+        if (xQueueReceive(ctx.queue, &cmd, wait) != pdTRUE) {
+            wifi_mgr_status_t w;
+            wifi_mgr_get_status(&w);
+            wait = pdMS_TO_TICKS(AUTO_CHECK_RETRY_MS);
+            if (w.sta_connected && claim(OTA_CHECKING)) {
+                do_check(CONFIG_APP_UPDATE_URL);
+                xSemaphoreTake(ctx.lock, portMAX_DELAY);
+                ctx.error[0] = '\0';
+                xSemaphoreGive(ctx.lock);
+                wait = pdMS_TO_TICKS(AUTO_CHECK_EVERY_MS);
+            }
             continue;
         }
         if (cmd.kind == CMD_CHECK) {

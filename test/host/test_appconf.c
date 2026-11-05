@@ -57,6 +57,13 @@ static void test_defaults(void)
     CHECK_STR(c.tz, "UTC0");
     CHECK(c.wifi_ssid[0] == '\0');
     CHECK(c.soft_switch == true);
+    CHECK(c.mqtt_enabled == false);
+    CHECK(c.mqtt_discovery == true);
+    CHECK(c.mqtt_port == APPCONF_MQTT_PORT_PLAIN);
+    CHECK_STR(c.mqtt_prefix, "efflorescence/1a2b");
+    char topic[APPCONF_TOPIC_MAX + 1];
+    appconf_topic(&c, "state", topic, sizeof topic);
+    CHECK_STR(topic, "efflorescence/1a2b/state");
     /* The default name is also the setup AP's SSID. */
     CHECK(strlen(c.device_name) <= APPCONF_SSID_MAX);
 
@@ -155,9 +162,57 @@ static void test_validate_tz(void)
     CHECK(strstr(err, "POSIX TZ") != NULL);
 }
 
-static void test_sanitize(void)
+static void test_validate_mqtt(void)
 {
     appconf_t c;
+    char err[128];
+
+    appconf_defaults(&c, ID);
+    c.mqtt_enabled = true;
+    CHECK(!appconf_validate(&c, err, sizeof err));
+    CHECK_STR(err, "MQTT host is empty.");
+
+    strcpy(c.mqtt_host, "192.168.1.102");
+    CHECK(appconf_validate(&c, err, sizeof err));
+    strcpy(c.mqtt_host, "broker host");
+    CHECK(!appconf_validate(&c, err, sizeof err));
+    strcpy(c.mqtt_host, "broker.local");
+
+    c.mqtt_port = 0;
+    CHECK(!appconf_validate(&c, err, sizeof err));
+    CHECK_STR(err, "MQTT port must be 1-65535.");
+    c.mqtt_port = 8883;
+
+    strcpy(c.mqtt_password, "p\xd0\xb0ss");
+    CHECK(!appconf_validate(&c, err, sizeof err));
+    strcpy(c.mqtt_password, "secret");
+    CHECK(appconf_validate(&c, err, sizeof err));
+
+    /* A bad host does not matter while MQTT is off; the prefix always does. */
+    appconf_defaults(&c, ID);
+    strcpy(c.mqtt_host, "bad host");
+    CHECK(appconf_validate(&c, err, sizeof err));
+    strcpy(c.mqtt_prefix, "lamp/");
+    CHECK(!appconf_validate(&c, err, sizeof err));
+    strcpy(c.mqtt_prefix, "lamp/+");
+    CHECK(!appconf_validate(&c, err, sizeof err));
+    strcpy(c.mqtt_prefix, "my lamp");
+    CHECK(!appconf_validate(&c, err, sizeof err));
+    c.mqtt_prefix[0] = '\0';
+    CHECK(!appconf_validate(&c, err, sizeof err));
+    strcpy(c.mqtt_prefix, "home/bedroom/lamp");
+    CHECK(appconf_validate(&c, err, sizeof err));
+
+    strcpy(c.mqtt_ca_cert, "not a certificate");
+    CHECK(!appconf_validate(&c, err, sizeof err));
+    CHECK_STR(err, "CA certificate does not look like PEM.");
+    strcpy(c.mqtt_ca_cert, "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----\n");
+    CHECK(appconf_validate(&c, err, sizeof err));
+}
+
+static void test_sanitize(void)
+{
+    static appconf_t c;
     appconf_defaults(&c, ID);
     CHECK(appconf_sanitize(&c, ID) == 0);
 
@@ -168,18 +223,37 @@ static void test_sanitize(void)
     strcpy(c.ntp_server, "ntp.example.org");
     strcpy(c.tz, "MSK-3");
     c.soft_switch = false;
+    c.mqtt_enabled = true;
+    strcpy(c.mqtt_host, "192.168.1.102");
+    strcpy(c.mqtt_prefix, "home/lamp");
     CHECK(appconf_sanitize(&c, ID) == 1);
     CHECK_STR(c.tz, "MSK-3");
+    CHECK(c.mqtt_enabled && strcmp(c.mqtt_host, "192.168.1.102") == 0);
+    CHECK_STR(c.mqtt_prefix, "home/lamp");
+
+    /* A broken link turns MQTT off rather than leaving half of it. */
+    strcpy(c.mqtt_host, "bad host");
+    CHECK(appconf_sanitize(&c, ID) == 1);
+    CHECK(!c.mqtt_enabled && c.mqtt_host[0] == '\0');
+    CHECK_STR(c.mqtt_prefix, "home/lamp");
+    CHECK_STR(c.device_name, "Bedside");
     CHECK_STR(c.device_name, "Bedside");
     CHECK_STR(c.hostname, "bedside");
     CHECK(c.wifi_ssid[0] == '\0' && c.wifi_password[0] == '\0');
     CHECK_STR(c.ntp_server, "ntp.example.org");
     CHECK(c.soft_switch == false);
 
+    /* Strings of garbage; the flags are read through get_bool() in the
+     * firmware and cannot hold anything but 0 or 1. */
     memset(&c, 0xff, sizeof c);
     c.soft_switch = true;
-    CHECK(appconf_sanitize(&c, ID) == 4);
+    c.mqtt_enabled = true;
+    c.mqtt_tls = true;
+    c.mqtt_skip_verify = true;
+    c.mqtt_discovery = true;
+    CHECK(appconf_sanitize(&c, ID) >= 6);
     CHECK_STR(c.tz, "UTC0");
+    CHECK_STR(c.mqtt_prefix, "efflorescence/1a2b");
     char err[128];
     CHECK(appconf_validate(&c, err, sizeof err));
     CHECK_STR(c.device_name, "Efflorescence-1A2B");
@@ -195,6 +269,7 @@ int main(void)
     test_validate_wifi();
     test_validate_ntp();
     test_validate_tz();
+    test_validate_mqtt();
     test_sanitize();
     REPORT();
 }

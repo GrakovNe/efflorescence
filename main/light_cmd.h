@@ -38,6 +38,10 @@ typedef struct {
 bool light_cmd_parse(const cJSON *root, light_cmd_t *cmd, char *err,
                      size_t err_sz);
 
+/* A raw MQTT payload: the JSON above, or just ON, OFF or TOGGLE. */
+bool light_cmd_parse_text(const char *data, size_t len, light_cmd_t *cmd,
+                          char *err, size_t err_sz);
+
 /* The state as it goes out over HTTP and MQTT:
  *   {"state": "ON" | "OFF", "brightness": 1..100, "soft": true | false}
  * NULL when out of memory. */

@@ -25,6 +25,7 @@
 #include "config_merge.h"
 #include "lamp.h"
 #include "light_cmd.h"
+#include "mqtt_mgr.h"
 #include "ota.h"
 #include "reset.h"
 #include "sched_mgr.h"
@@ -39,7 +40,7 @@
 
 static const char *TAG = "web";
 
-#define POST_BODY_MAX 4096
+#define POST_BODY_MAX 8192
 #define CMD_BODY_MAX  256
 #define UPLOAD_CHUNK   4096
 
@@ -51,6 +52,9 @@ static httpd_handle_t s_httpd;
 static char s_device_id[5];
 static char s_mac_str[18];
 static const appconf_t *s_cfg;
+
+/* Too big for the httpd stack; the server is single-threaded. */
+static appconf_t s_merged;
 
 static void add_str_or_null(cJSON *obj, const char *key, const char *val)
 {
@@ -329,8 +333,9 @@ static esp_err_t handler_status(httpd_req_t *req)
     cJSON *light = light_state_json(l.on, l.brightness, l.soft);
     cJSON *pwm = cJSON_CreateObject();
     cJSON *wifi = cJSON_AddObjectToObject(root, "wifi");
+    cJSON *mqtt = cJSON_AddObjectToObject(root, "mqtt");
     if (root == NULL || tm == NULL || dev == NULL || light == NULL ||
-        pwm == NULL || wifi == NULL) {
+        pwm == NULL || wifi == NULL || mqtt == NULL) {
         cJSON_Delete(light);
         cJSON_Delete(pwm);
         cJSON_Delete(root);
@@ -405,6 +410,17 @@ static esp_err_t handler_status(httpd_req_t *req)
     }
     add_str_or_null(wifi, "last_disconnect", w.last_disconnect);
 
+    mqtt_mgr_status_t mq;
+    mqtt_mgr_get_status(&mq);
+    cJSON_AddBoolToObject(mqtt, "enabled", mq.enabled);
+    cJSON_AddBoolToObject(mqtt, "connected", mq.connected);
+    if (mq.last_publish > 0) {
+        cJSON_AddNumberToObject(mqtt, "last_publish", (double)mq.last_publish);
+    } else {
+        cJSON_AddNullToObject(mqtt, "last_publish");
+    }
+    cJSON_AddNumberToObject(mqtt, "errors", mq.errors);
+
     return send_json(req, "200 OK", root);
 }
 
@@ -415,8 +431,9 @@ static esp_err_t handler_config_get(httpd_req_t *req)
     cJSON *wifi = cJSON_AddObjectToObject(root, "wifi");
     cJSON *time = cJSON_AddObjectToObject(root, "time");
     cJSON *light = cJSON_AddObjectToObject(root, "light");
+    cJSON *mqtt = cJSON_AddObjectToObject(root, "mqtt");
     if (root == NULL || dev == NULL || wifi == NULL || time == NULL ||
-        light == NULL) {
+        light == NULL || mqtt == NULL) {
         cJSON_Delete(root);
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, NULL);
     }
@@ -426,6 +443,16 @@ static esp_err_t handler_config_get(httpd_req_t *req)
     cJSON_AddStringToObject(time, "ntp_server", s_cfg->ntp_server);
     cJSON_AddStringToObject(time, "tz", s_cfg->tz);
     cJSON_AddBoolToObject(light, "soft", s_cfg->soft_switch);
+    cJSON_AddBoolToObject(mqtt, "enabled", s_cfg->mqtt_enabled);
+    cJSON_AddStringToObject(mqtt, "host", s_cfg->mqtt_host);
+    cJSON_AddNumberToObject(mqtt, "port", s_cfg->mqtt_port);
+    cJSON_AddStringToObject(mqtt, "username", s_cfg->mqtt_username);
+    cJSON_AddBoolToObject(mqtt, "password_set", s_cfg->mqtt_password[0] != '\0');
+    cJSON_AddBoolToObject(mqtt, "tls", s_cfg->mqtt_tls);
+    cJSON_AddBoolToObject(mqtt, "ca_cert_set", s_cfg->mqtt_ca_cert[0] != '\0');
+    cJSON_AddBoolToObject(mqtt, "skip_verify", s_cfg->mqtt_skip_verify);
+    cJSON_AddStringToObject(mqtt, "topic_prefix", s_cfg->mqtt_prefix);
+    cJSON_AddBoolToObject(mqtt, "discovery", s_cfg->mqtt_discovery);
     return send_json(req, "200 OK", root);
 }
 
@@ -473,25 +500,25 @@ static esp_err_t handler_config_post(httpd_req_t *req)
     }
 
     /* NVS, not s_cfg: what is stored is the base for the merge. */
-    appconf_t m;
-    settings_load(&m, s_device_id);
+    appconf_t *m = &s_merged;
+    settings_load(m, s_device_id);
     char err[160];
-    bool ok = config_merge(root, &m, err, sizeof err);
+    bool ok = config_merge(root, m, err, sizeof err);
     cJSON_Delete(root);
     if (!ok) {
         return send_json_err(req, err);
     }
-    if (settings_save(&m) != ESP_OK) {
+    if (settings_save(m) != ESP_OK) {
         return send_json_err(req, "could not save settings");
     }
 
-    appconf_derive(&m, s_device_id);
+    appconf_derive(m, s_device_id);
     cJSON *out = cJSON_CreateObject();
     if (out == NULL) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, NULL);
     }
     char url[APPCONF_HOST_MAX + 32];
-    snprintf(url, sizeof url, "http://%s.local/", m.hostname);
+    snprintf(url, sizeof url, "http://%s.local/", m->hostname);
     cJSON_AddBoolToObject(out, "ok", true);
     cJSON_AddStringToObject(out, "url", url);
     ESP_LOGI(TAG, "settings saved, restarting soon");

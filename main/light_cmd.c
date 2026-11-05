@@ -71,6 +71,39 @@ bool light_cmd_parse(const cJSON *root, light_cmd_t *cmd, char *err,
     return true;
 }
 
+bool light_cmd_parse_text(const char *data, size_t len, light_cmd_t *cmd,
+                          char *err, size_t err_sz)
+{
+    static const struct {
+        const char *word;
+        light_state_t state;
+    } words[] = {
+        { "ON", LIGHT_ON }, { "OFF", LIGHT_OFF }, { "TOGGLE", LIGHT_TOGGLE },
+    };
+    while (len > 0 && (data[len - 1] == '\n' || data[len - 1] == '\r' ||
+                       data[len - 1] == ' ')) {
+        len--;
+    }
+    for (size_t i = 0; i < sizeof words / sizeof words[0]; i++) {
+        if (len == strlen(words[i].word) &&
+            memcmp(data, words[i].word, len) == 0) {
+            cmd->state = words[i].state;
+            cmd->brightness = 0;
+            cmd->transition_ms = -1;
+            cmd->soft = -1;
+            return true;
+        }
+    }
+    cJSON *root = cJSON_ParseWithLength(data, len);
+    if (root == NULL) {
+        snprintf(err, err_sz, "the command is neither JSON nor ON, OFF, TOGGLE");
+        return false;
+    }
+    bool ok = light_cmd_parse(root, cmd, err, err_sz);
+    cJSON_Delete(root);
+    return ok;
+}
+
 cJSON *light_state_json(bool on, uint8_t brightness, bool soft)
 {
     cJSON *o = cJSON_CreateObject();

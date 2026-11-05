@@ -175,6 +175,41 @@ footer .l + .l { margin-top:4px; }
   </section>
 
   <section class="sec">
+    <div class="lab">MQTT</div>
+    <div class="fields">
+      <div class="chks">
+        <label class="chk"><input type="checkbox" id="mq_en"><span>Enabled</span></label>
+        <label class="chk"><input type="checkbox" id="mq_disc"><span>Home Assistant Discovery</span></label>
+        <label class="chk"><input type="checkbox" id="mq_tls"><span>Use TLS</span></label>
+        <label class="chk sub"><input type="checkbox" id="mq_skip"><span>Skip certificate verification</span></label>
+      </div>
+      <div id="mqbody" style="margin-top:22px">
+        <div class="f row2 h">
+          <div><label class="l" for="mq_host">Broker host</label><input type="text" id="mq_host" maxlength="64" autocomplete="off"></div>
+          <div><label class="l" for="mq_port">Port</label><input type="number" id="mq_port" min="1" max="65535"></div>
+        </div>
+        <div class="f row2">
+          <div><label class="l" for="mq_user">Username</label><input type="text" id="mq_user" maxlength="32" autocomplete="off"></div>
+          <div><label class="l" for="mq_pass">Password</label>
+            <div class="pw"><input type="password" id="mq_pass" maxlength="64" autocomplete="off">
+              <button type="button" data-eye="mq_pass" aria-label="Show password"><svg class="i" viewBox="0 0 24 24"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+            <div class="hint" id="mqpasshint"></div></div>
+        </div>
+        <div class="f" id="cawrap">
+          <label class="l" for="mq_ca">CA certificate (PEM) <span class="r"><a id="cadel">Remove saved</a></span></label>
+          <textarea id="mq_ca" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+          <div class="hint" id="mqcahint">Empty means the built-in CA bundle.</div>
+        </div>
+        <div class="f">
+          <label class="l" for="mq_pfx">Topic prefix <span class="r"><a data-def="mq_pfx">default</a></span></label>
+          <input type="text" id="mq_pfx" maxlength="64" autocomplete="off">
+          <div class="hint" id="mqpfxhint"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
     <div class="lab">Device</div>
     <div class="fields">
       <div class="f">
@@ -250,6 +285,7 @@ footer .l + .l { margin-top:4px; }
 "use strict";
 const $ = id => document.getElementById(id);
 const DEF_NTP = "pool.ntp.org";
+const DEF_PORT = 1883, DEF_PORT_TLS = 8883;
 
 let deviceId = "";
 let savedSsid = "";
@@ -257,6 +293,8 @@ let selectedSsid = "";
 let selectedSecure = true;
 let nets = [];
 let wifiPassDirty = false;
+let mqttPassDirty = false;
+let caDirty = false;
 const dirty = new Set();
 
 /* Mirrors appconf_hostname() in the firmware. */
@@ -350,16 +388,47 @@ $("ssid").addEventListener("input", () => {
 $("pass").addEventListener("input", () => { wifiPassDirty = true; });
 $("rescan").onclick = () => scan(true);
 
+function syncChecks() {
+  const en = $("mq_en").checked, tls = $("mq_tls").checked;
+  $("mq_disc").disabled = !en;
+  $("mq_tls").disabled = !en;
+  $("mq_skip").disabled = !en || !tls;
+  $("mqbody").classList.toggle("dim", !en);
+  $("cawrap").style.display = en && tls ? "" : "none";
+}
+$("mq_en").addEventListener("change", syncChecks);
+$("mq_tls").addEventListener("change", () => {
+  const p = $("mq_port");
+  if ($("mq_tls").checked && Number(p.value) === DEF_PORT) p.value = String(DEF_PORT_TLS);
+  if (!$("mq_tls").checked && Number(p.value) === DEF_PORT_TLS) p.value = String(DEF_PORT);
+  syncChecks();
+});
+$("mq_pass").addEventListener("input", () => { mqttPassDirty = true; });
+$("mq_ca").addEventListener("input", () => { caDirty = true; });
+$("cadel").onclick = () => {
+  $("mq_ca").value = "";
+  caDirty = true;
+  $("mqcahint").textContent = "The saved certificate will be removed.";
+  $("mqcahint").className = "hint";
+  markDirty("ca");
+};
+
 document.querySelectorAll("[data-eye]").forEach(b => b.onclick = () => {
   const i = $(b.dataset.eye);
   i.type = i.type === "password" ? "text" : "password";
 });
 document.querySelectorAll("[data-def]").forEach(a => a.onclick = () => {
   const id = a.dataset.def;
-  const defs = { ntp: DEF_NTP };
+  const defs = { mq_pfx: "efflorescence/" + deviceId, ntp: DEF_NTP };
   $(id).value = defs[id];
   markDirty(id);
+  topicPreview();
 });
+function topicPreview() {
+  const p = $("mq_pfx").value || "…";
+  $("mqpfxhint").textContent = "Topics: " + ["set", "state", "get", "availability"].map(t => p + "/" + t).join(" · ");
+}
+$("mq_pfx").addEventListener("input", topicPreview);
 $("name").addEventListener("input", () => { $("hostprev").textContent = "http://" + hostname($("name").value) + ".local/"; });
 
 let countdown;
@@ -548,10 +617,22 @@ $("save").onclick = async () => {
     device: { name: $("name").value },
     wifi: { ssid: selectedSsid },
     time: { ntp_server: $("ntp").value, tz: $("tz").value },
-    light: { soft: $("soft").checked }
+    light: { soft: $("soft").checked },
+    mqtt: {
+      enabled: $("mq_en").checked,
+      host: $("mq_host").value,
+      port: Number($("mq_port").value || DEF_PORT),
+      username: $("mq_user").value,
+      tls: $("mq_tls").checked,
+      skip_verify: $("mq_skip").checked,
+      topic_prefix: $("mq_pfx").value,
+      discovery: $("mq_disc").checked
+    }
   };
 
   if (wifiPassDirty) body.wifi.password = selectedSecure ? $("pass").value : "";
+  if (mqttPassDirty) body.mqtt.password = $("mq_pass").value;
+  if (caDirty) body.mqtt.ca_cert = $("mq_ca").value;
 
   $("save").disabled = true;
   $("savemsg").className = "n";
@@ -586,6 +667,21 @@ function fill(j) {
   if (j.time) $("ntp").value = j.time.ntp_server || DEF_NTP;
   tzOptions(j.time && j.time.tz ? j.time.tz : "UTC0");
   if (j.light) $("soft").checked = !!j.light.soft;
+  const m = j.mqtt;
+  if (m) {
+    $("mq_en").checked = !!m.enabled;
+    $("mq_host").value = m.host || "";
+    $("mq_port").value = m.port || DEF_PORT;
+    $("mq_user").value = m.username || "";
+    if (m.password_set) { $("mqpasshint").textContent = "Saved · leave empty to keep"; $("mqpasshint").className = "hint ok"; }
+    $("mq_tls").checked = !!m.tls;
+    $("mq_skip").checked = !!m.skip_verify;
+    if (m.ca_cert_set) { $("mqcahint").textContent = "A certificate is saved · leave empty to keep"; $("mqcahint").className = "hint ok"; }
+    $("mq_pfx").value = m.topic_prefix || "";
+    $("mq_disc").checked = !!m.discovery;
+  }
+  syncChecks();
+  topicPreview();
 }
 
 (async function init() {
@@ -604,7 +700,7 @@ function fill(j) {
   try {
     const r = await fetch("/api/v1/config");
     fill(await r.json());
-  } catch (e) {}
+  } catch (e) { syncChecks(); }
   otaPoll();
   scan(true);
 })();

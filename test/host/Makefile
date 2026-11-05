@@ -4,7 +4,8 @@ APPCONF := ../../components/appconf
 CJSON   := $(HOME)/esp/esp-idf/components/json/cJSON
 MAIN    := ../../main
 TESTS   := test_dimmer test_lamp_core test_gesture test_appconf \
-           test_config_merge test_light_cmd test_ota_logic test_schedule
+           test_config_merge test_light_cmd test_ota_logic test_schedule \
+           test_ha_discovery
 
 .PHONY: test clean
 
@@ -38,6 +39,10 @@ test_ota_logic: test_ota_logic.c tinytest.h $(MAIN)/ota_logic.c $(MAIN)/ota_logi
 test_schedule: test_schedule.c tinytest.h $(MAIN)/schedule.c $(MAIN)/schedule.h $(MAIN)/light_cmd.h
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -I$(MAIN) -I$(CJSON) -o $@ \
 	    test_schedule.c $(MAIN)/schedule.c $(CJSON)/cJSON.c -lm
+
+test_ha_discovery: test_ha_discovery.c tinytest.h $(MAIN)/ha_discovery.c $(MAIN)/ha_discovery.h
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -I$(MAIN) -I$(CJSON) -o $@ \
+	    test_ha_discovery.c $(MAIN)/ha_discovery.c $(CJSON)/cJSON.c -lm
 
 clean:
 	rm -f $(TESTS)

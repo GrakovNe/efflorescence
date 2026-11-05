@@ -83,6 +83,16 @@ footer .err { color:var(--error); }
   </section>
 
   <section class="sec">
+    <div><div class="lab">MQTT</div><div class="state" id="s-mqtt">—</div></div>
+    <div class="tbl">
+      <div><span>Broker</span><span id="v-broker">—</span></div>
+      <div><span>Topics</span><span class="mono" id="v-topics">—</span></div>
+      <div><span>Last publish</span><span id="v-pub">—</span></div>
+      <div><span>Errors</span><span id="v-err">—</span></div>
+    </div>
+  </section>
+
+  <section class="sec">
     <div><div class="lab">Time</div><div class="state" id="s-time">—</div></div>
     <div class="tbl">
       <div><span>NTP server</span><span id="v-ntp">—</span></div>
@@ -124,6 +134,7 @@ const $ = id => document.getElementById(id);
 const pad = n => String(n).padStart(2, "0");
 const set = (id, v) => { $(id).textContent = v == null || v === "" ? "—" : String(v); };
 const state = (id, ok, text) => { $(id).className = "state " + (ok ? "ok" : "err"); $(id).textContent = text; };
+const ago = s => s < 60 ? s + " s ago" : s < 3600 ? Math.floor(s / 60) + " min ago" : Math.floor(s / 3600) + " h ago";
 const mb = b => (b / 1048576).toFixed(b >= 10485760 ? 0 : 1) + " MB";
 function uptime(s) {
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
@@ -135,7 +146,7 @@ const RESET = { power_on: "Power on", ext: "External pin", software: "Software r
 const WIFI = { provisioning: "Not configured", off: "Radio off", fallback: "No connection", connecting: "Connecting" };
 
 function render(j) {
-  const w = j.wifi, t = j.time, d = j.device, l = j.light, p = l.pwm;
+  const w = j.wifi, t = j.time, d = j.device, l = j.light, p = l.pwm, m = j.mqtt;
   const on = l.state === "ON";
 
   $("s-light").className = "state" + (on ? " ok" : "");
@@ -154,6 +165,11 @@ function render(j) {
   set("v-gw", w.gateway);
   set("v-host", d.hostname + ".local");
   set("v-mac", d.mac);
+
+  $("s-mqtt").className = "state" + (!m.enabled ? "" : m.connected ? " ok" : " err");
+  $("s-mqtt").textContent = !m.enabled ? "Off" : m.connected ? "Connected" : "Disconnected";
+  set("v-pub", m.last_publish && t.timestamp ? ago(Math.max(0, t.timestamp - m.last_publish)) : null);
+  set("v-err", m.errors);
 
   state("s-time", t.synced, t.synced ? "Synced" : "Not synced");
   set("v-tz", t.tz);
@@ -192,6 +208,10 @@ async function loadConfig() {
   try {
     const r = await fetch("/api/v1/config");
     const j = await r.json();
+    if (j.mqtt) {
+      set("v-broker", j.mqtt.host ? j.mqtt.host + " : " + j.mqtt.port : null);
+      set("v-topics", j.mqtt.topic_prefix + "/…");
+    }
     if (j.time) set("v-ntp", j.time.ntp_server);
   } catch (e) {  }
 }

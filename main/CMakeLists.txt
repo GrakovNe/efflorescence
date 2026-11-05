@@ -5,13 +5,14 @@ idf_component_register(SRCS "main.c" "settings.c" "reset.c"
                               "time_mgr.c" "config_merge.c"
                               "ota.c" "ota_logic.c"
                               "schedule.c" "sched_mgr.c"
+                              "mqtt_mgr.c" "ha_discovery.c"
                        INCLUDE_DIRS "."
                        REQUIRES appconf nvs_flash esp_driver_gpio
                               esp_driver_ledc esp_hw_support esp_system
                               esp_timer esp_wifi esp_netif esp_event
                               esp_http_server json spi_flash
                               app_update esp_app_format esp_https_ota
-                              esp_http_client mbedtls)
+                              esp_http_client mbedtls mqtt esp-tls)
 
 # Bench build: an image that never confirms itself, to watch the rollback.
 if(APP_OTA_TEST_NO_CONFIRM)

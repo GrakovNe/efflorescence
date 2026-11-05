@@ -63,6 +63,39 @@ static void test_all_sections(void)
     CHECK(c.wifi_password[0] == '\0');
 }
 
+static void test_mqtt(void)
+{
+    appconf_t c;
+    char err[160];
+    appconf_defaults(&c, ID);
+
+    CHECK(!merge(&c, "{\"mqtt\":{\"enabled\":\"yes\"}}", err, sizeof err));
+    CHECK(strstr(err, "true or false") != NULL);
+
+    CHECK(!merge(&c, "{\"mqtt\":{\"enabled\":true}}", err, sizeof err));
+    CHECK(strstr(err, "MQTT host is empty") != NULL);
+
+    appconf_defaults(&c, ID);
+    CHECK(merge(&c, "{\"mqtt\":{\"enabled\":true,\"host\":\"broker\",\"port\":8883,"
+                    "\"tls\":true,\"topic_prefix\":\"home/lamp\",\"discovery\":false}}",
+                err, sizeof err));
+    CHECK(c.mqtt_enabled && c.mqtt_tls && c.mqtt_port == 8883 && !c.mqtt_discovery);
+    CHECK_STR(c.mqtt_host, "broker");
+    CHECK_STR(c.mqtt_prefix, "home/lamp");
+
+    /* A password that is not sent stays; an empty one clears it. */
+    strcpy(c.mqtt_password, "secret");
+    CHECK(merge(&c, "{\"mqtt\":{\"username\":\"lamp\"}}", err, sizeof err));
+    CHECK_STR(c.mqtt_password, "secret");
+    CHECK(merge(&c, "{\"mqtt\":{\"password\":\"\"}}", err, sizeof err));
+    CHECK(c.mqtt_password[0] == '\0');
+
+    CHECK(!merge(&c, "{\"mqtt\":{\"port\":70000}}", err, sizeof err));
+    CHECK(strstr(err, "between 1 and 65535") != NULL);
+    CHECK(!merge(&c, "{\"mqtt\":{\"port\":1883.5}}", err, sizeof err));
+    CHECK(!merge(&c, "{\"mqtt\":{\"topic_prefix\":\"lamp/\"}}", err, sizeof err));
+}
+
 static void test_rejects(void)
 {
     appconf_t c;
@@ -103,6 +136,7 @@ int main(void)
 {
     test_omitted_fields_keep_values();
     test_all_sections();
+    test_mqtt();
     test_rejects();
     REPORT();
 }

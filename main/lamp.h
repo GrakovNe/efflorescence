@@ -44,6 +44,10 @@ void lamp_signal(lamp_signal_t signal);
 
 void lamp_get(lamp_status_t *out);
 
+/* Called on the lamp task, outside its lock, after on or brightness
+ * changed. One listener; it must not block. */
+void lamp_set_listener(void (*changed)(void));
+
 /* Saves a pending state change now, for use right before a restart. */
 void lamp_flush(void);
 
