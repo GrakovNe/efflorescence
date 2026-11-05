@@ -35,6 +35,11 @@ typedef struct {
 
     bool soft_switch; /* fade on and off instead of jumping */
 
+    /* The lamp runs on a battery. Everything done for the battery's sake
+     * hangs on this: light sleep, a slower Wi-Fi, a setup AP that goes
+     * away, and the handling of an empty battery. */
+    bool battery;
+
     bool     mqtt_enabled;
     char     mqtt_host[APPCONF_HOST_MAX + 1];
     uint16_t mqtt_port;

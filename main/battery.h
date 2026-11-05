@@ -10,10 +10,12 @@
 extern "C" {
 #endif
 
-/* Looks at why the chip started. After a row of brownouts it does not
- * return: the lamp goes into deep sleep until the sensor is touched.
- * Runs before anything else drives a pin or starts the radio. */
-void battery_early_init(void);
+/* With a battery: looks at why the chip started. After a row of
+ * brownouts it does not return: the lamp goes into deep sleep until the
+ * sensor is touched. Runs before anything else drives a pin or starts
+ * the radio. Without a battery a brownout means nothing and none of
+ * this happens. */
+void battery_early_init(bool present);
 
 /* Starts watching for the flag to clear. After lamp_start(). */
 void battery_start(void);
@@ -25,7 +27,8 @@ bool battery_boot_dark(void);
 
 /* Bench tool, there being no way to drain the battery on request:
  * "brownout" restarts as if the supply had collapsed, "sleep" does it as
- * the last of a row, "clear" drops the flag. False for anything else. */
+ * the last of a row, "clear" drops the flag. False for anything else,
+ * and always without a battery. */
 bool battery_simulate(const char *what);
 
 #ifdef __cplusplus

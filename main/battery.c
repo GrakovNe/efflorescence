@@ -39,6 +39,7 @@ RTC_NOINIT_ATTR static store_t s_store;
 static battery_state_t s_state;
 static volatile bool s_low;
 static bool s_dark;
+static bool s_present;
 
 static void store_save(void)
 {
@@ -100,7 +101,7 @@ static void sleep_until_touch(void)
     esp_deep_sleep_start();
 }
 
-void battery_early_init(void)
+void battery_early_init(bool present)
 {
     /* Holds set before a deep sleep outlive it. */
     if (CONFIG_APP_TOUCH_GND_GPIO >= 0) {
@@ -108,6 +109,13 @@ void battery_early_init(void)
     }
     if (CONFIG_APP_TOUCH_VCC_GPIO >= 0) {
         gpio_hold_dis(CONFIG_APP_TOUCH_VCC_GPIO);
+    }
+
+    s_present = present;
+    if (!present) {
+        /* Whatever a battery left behind does not apply any more. */
+        memset(&s_store, 0, sizeof s_store);
+        return;
     }
 
     battery_reset_t why;
@@ -180,6 +188,9 @@ bool battery_boot_dark(void)
 
 bool battery_simulate(const char *what)
 {
+    if (!s_present) {
+        return false;
+    }
     if (strcmp(what, "clear") == 0) {
         s_state.low = false;
         s_state.streak = 0;

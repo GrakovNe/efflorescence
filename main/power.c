@@ -14,9 +14,19 @@ static const char *TAG = "power";
 
 static esp_pm_lock_handle_t s_led_lock;
 static bool s_led_active;
+static bool s_sleeps;
 
-void power_start(void)
+bool power_sleeps(void)
 {
+    return s_sleeps;
+}
+
+void power_start(bool battery)
+{
+    if (!battery) {
+        ESP_LOGI(TAG, "no battery: no light sleep");
+        return;
+    }
     ESP_ERROR_CHECK(esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "led", &s_led_lock));
 
     /* The low end stays at 80 MHz: below it the APB clock changes and
@@ -31,6 +41,7 @@ void power_start(void)
         ESP_LOGE(TAG, "esp_pm_configure: %s, no sleep", esp_err_to_name(err));
         return;
     }
+    s_sleeps = true;
     ESP_LOGI(TAG, "light sleep on, cpu %d..%d MHz", pm.min_freq_mhz,
              pm.max_freq_mhz);
 }

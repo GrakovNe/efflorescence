@@ -155,8 +155,9 @@ function render(j) {
   $("s-light").textContent = on ? "On" : "Off";
   set("v-bri", l.brightness + " %");
   set("v-soft", l.soft ? "On" : "Off");
-  set("v-bat", l.battery_low ? "Low" : "Not reported low");
-  $("v-bat").className = l.battery_low ? "bad" : "";
+  const pw = j.power || {};
+  set("v-bat", !pw.battery ? "None" : l.battery_low ? "Low" : "Not reported low");
+  $("v-bat").className = pw.battery && l.battery_low ? "bad" : "";
   set("v-pwm", p.freq_hz + " Hz · " + p.bits + " bit");
   set("v-duty", (p.steady ? "Steady on, no PWM" : (p.duty / p.duty_max * 100).toFixed(2) + " % · " + p.duty + " of " + p.duty_max) +
       (p.raw ? " · bench override" : ""));

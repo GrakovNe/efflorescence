@@ -1,8 +1,9 @@
 # Efflorescence
 
-A battery lamp: a 3 W LED under an acrylic ball with flowers in it, one
-touch sensor, and an ESP32-C3 that dims it, keeps a schedule with a
-sunrise, and talks to a phone or to Home Assistant over Wi-Fi.
+A lamp: a 3 W LED under an acrylic ball with flowers in it, one touch
+sensor, and an ESP32-C3 that dims it, keeps a schedule with a sunrise,
+and talks to a phone or to Home Assistant over Wi-Fi. It runs from a
+5 V supply or, with a setting, from a battery.
 
 ## Hardware
 
@@ -10,8 +11,9 @@ sunrise, and talks to a phone or to Home Assistant over Wi-Fi.
 - TTP223 touch sensor module.
 - A 3 W LED with its series resistor, switched on the low side by a
   MOSFET module with an optocoupler input.
-- A Li-ion cell with a TP4056 charger module on the board's 5 V pin.
-  Never plug in USB with the battery connected.
+- Power: 5 V into the board, or a Li-ion cell with a TP4056 charger
+  module on the board's 5 V pin. Never plug in USB with a battery
+  connected.
 
 | XIAO pin | GPIO | Goes to |
 | --- | --- | --- |
@@ -20,7 +22,7 @@ sunrise, and talks to a phone or to Home Assistant over Wi-Fi.
 | D3 | 5 | sensor VCC (the board drives it high) |
 | D4 | 6 | MOSFET module GND (driven low) |
 | D5 | 7 | MOSFET module PWM |
-| 5V, GND | | charger module OUT+, OUT- |
+| 5V, GND | | the supply, or charger module OUT+, OUT- |
 
 The LED's plus goes to the battery plus, its minus to the module's
 LOAD-. Pins can be changed in `idf.py menuconfig` → Efflorescence.
@@ -76,9 +78,8 @@ phone, pick your home Wi-Fi and save. After a restart the lamp is at
 `http://efflorescence-xxxx.local/`. Renaming it in Settings changes the
 `.local` name too.
 
-The setup network costs battery, so it lasts five minutes. Hold the
-sensor to bring it back. A lamp that has lost its home network does the
-same and keeps looking for the network on its own.
+A lamp that has lost its home network brings the setup network back
+and keeps looking for the home one on its own.
 
 ### The pages
 
@@ -93,13 +94,18 @@ same and keeps looking for the network on its own.
 
 ### Battery
 
-The lamp cannot measure its battery. It notices only when the battery is
-empty: it then starts dark, shows "battery low" on its pages and over
-MQTT, and refuses firmware updates until the light has stayed on for
-five minutes after a charge. If the battery cannot even keep it awake,
-the lamp goes to sleep until the sensor is touched.
+A lamp on a battery has to be told so: Settings → Power → Runs on a
+battery. It then does what a battery needs and a wall supply does not:
 
-While the light is off the lamp dozes and stays on Wi-Fi.
+- While the light is off the lamp dozes and stays on Wi-Fi. It answers
+  a little slower for it.
+- The setup network lasts five minutes. Hold the sensor to bring it
+  back.
+- The lamp cannot measure its battery. It notices only when the battery
+  is empty: it then starts dark, shows "battery low" on its pages and
+  over MQTT, and refuses firmware updates until the light has stayed on
+  for five minutes after a charge. If the battery cannot even keep it
+  awake, the lamp goes to sleep until the sensor is touched.
 
 ### API
 
@@ -141,7 +147,7 @@ prefix, `efflorescence/<id>` by default:
 
 Home Assistant discovery is on by default: the lamp shows up as a light
 with brightness and transitions, a switch for soft on and off, an event
-for taps, a battery sensor and a firmware update.
+for taps, a firmware update and, on a battery, a battery sensor.
 
 ### Updates
 

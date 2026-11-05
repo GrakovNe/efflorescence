@@ -55,7 +55,6 @@ void app_main(void)
              esp_app_get_description()->version, esp_get_idf_version(),
              __DATE__, __TIME__);
 
-    battery_early_init();
     reset_early_init();
     settings_nvs_init();
 
@@ -68,6 +67,10 @@ void app_main(void)
     settings_load(cfg, device_id);
     ESP_LOGI(TAG, "device %s: name \"%s\", hostname %s.local",
              device_id, cfg->device_name, cfg->hostname);
+    /* Before anything drives a pin or starts the radio: on a battery
+     * this may be where the lamp goes back to sleep. */
+    battery_early_init(cfg->battery);
+    ESP_LOGI(TAG, "power: %s", cfg->battery ? "battery" : "no battery");
     ESP_LOGI(TAG, "wifi: %s, mqtt: %s, ntp: %s, zone %s",
              cfg->wifi_ssid[0] != '\0' ? cfg->wifi_ssid : "not configured",
              cfg->mqtt_enabled ? cfg->mqtt_host : "disabled",
@@ -75,7 +78,7 @@ void app_main(void)
 
     /* The light and the sensor come first: the lamp works without a
      * network. */
-    power_start();
+    power_start(cfg->battery);
     lamp_start(cfg);
     touch_start();
     battery_start();

@@ -417,6 +417,13 @@ static esp_err_t handler_status(httpd_req_t *req)
     }
     add_str_or_null(wifi, "last_disconnect", w.last_disconnect);
 
+    cJSON *power = cJSON_AddObjectToObject(root, "power");
+    if (power != NULL) {
+        cJSON_AddBoolToObject(power, "battery", s_cfg->battery);
+        cJSON_AddBoolToObject(power, "battery_low", battery_low());
+        cJSON_AddBoolToObject(power, "light_sleep", power_sleeps());
+    }
+
     cJSON *touch = cJSON_AddObjectToObject(root, "touch");
     if (touch != NULL) {
         cJSON_AddNumberToObject(touch, "stuck", touch_stuck_count());
@@ -456,6 +463,10 @@ static esp_err_t handler_config_get(httpd_req_t *req)
     cJSON_AddStringToObject(time, "ntp_server", s_cfg->ntp_server);
     cJSON_AddStringToObject(time, "tz", s_cfg->tz);
     cJSON_AddBoolToObject(light, "soft", s_cfg->soft_switch);
+    cJSON *power = cJSON_AddObjectToObject(root, "power");
+    if (power != NULL) {
+        cJSON_AddBoolToObject(power, "battery", s_cfg->battery);
+    }
     cJSON_AddBoolToObject(mqtt, "enabled", s_cfg->mqtt_enabled);
     cJSON_AddStringToObject(mqtt, "host", s_cfg->mqtt_host);
     cJSON_AddNumberToObject(mqtt, "port", s_cfg->mqtt_port);
@@ -750,6 +761,9 @@ static esp_err_t handler_debug_battery(httpd_req_t *req)
         strlcpy(word, what->valuestring, sizeof word);
     }
     cJSON_Delete(root);
+    if (!s_cfg->battery) {
+        return send_json_err(req, "this lamp is not set up as battery powered");
+    }
     bool restarts = strcmp(word, "brownout") == 0 || strcmp(word, "sleep") == 0;
     if (!restarts && strcmp(word, "clear") != 0) {
         return send_json_err(req, "\"simulate\" must be \"brownout\", "

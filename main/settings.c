@@ -23,6 +23,7 @@ static const char *TAG = "settings";
 #define KEY_NTP   "ntp"
 #define KEY_TZ    "tz"
 #define KEY_SOFT  "soft"
+#define KEY_BAT   "bat"
 #define KEY_MQ_EN   "mq_en"
 #define KEY_MQ_HOST "mq_host"
 #define KEY_MQ_PORT "mq_port"
@@ -113,6 +114,7 @@ void settings_load(appconf_t *c, const char device_id[5])
     get_str(h, KEY_NTP, c->ntp_server, sizeof c->ntp_server);
     get_str(h, KEY_TZ, c->tz, sizeof c->tz);
     get_bool(h, KEY_SOFT, &c->soft_switch);
+    get_bool(h, KEY_BAT, &c->battery);
     get_bool(h, KEY_MQ_EN, &c->mqtt_enabled);
     get_str(h, KEY_MQ_HOST, c->mqtt_host, sizeof c->mqtt_host);
     get_u16(h, KEY_MQ_PORT, &c->mqtt_port);
@@ -155,6 +157,7 @@ esp_err_t settings_save(const appconf_t *c)
     PUT(nvs_set_str(h, KEY_NTP, c->ntp_server));
     PUT(nvs_set_str(h, KEY_TZ, c->tz));
     PUT(nvs_set_u8(h, KEY_SOFT, c->soft_switch));
+    PUT(nvs_set_u8(h, KEY_BAT, c->battery));
     PUT(nvs_set_u8(h, KEY_MQ_EN, c->mqtt_enabled));
     PUT(nvs_set_str(h, KEY_MQ_HOST, c->mqtt_host));
     PUT(nvs_set_u16(h, KEY_MQ_PORT, c->mqtt_port));

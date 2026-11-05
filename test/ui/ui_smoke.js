@@ -92,6 +92,7 @@ function check(cond, name) {
     wifi: { connected: true, ap_up: false, ssid: "Home", bssid: "aa:bb:cc:dd:ee:ff", rssi: -58, channel: 6,
             ip: "192.168.1.42", gateway: "192.168.1.1", last_disconnect: "other" },
     mqtt: { enabled: true, connected: true, last_publish: now - 10, errors: 0 },
+    power: { battery: true, battery_low: false, light_sleep: true },
   };
 
   const m = await runPage(path.join(WEB, "main.html"), { "/api/v1/light": light, "/api/v1/status": status });
@@ -153,6 +154,7 @@ function check(cond, name) {
     wifi: { ssid: "Home", password_set: true },
     time: { ntp_server: "pool.ntp.org", tz: "MSK-3" },
     light: { soft: true },
+    power: { battery: true },
     mqtt: {
       enabled: true, host: "mqtt.test", port: 1884, username: "u",
       password_set: true, tls: false, ca_cert_set: true, skip_verify: false,
@@ -199,6 +201,9 @@ function check(cond, name) {
   check(i2.els["s-light"].className === "state", "info: light off is neutral");
   check(i2.els["v-soft"].textContent === "Off", "info: soft off");
   check(i2.els["v-bat"].textContent === "Low" && i2.els["v-bat"].className === "bad", "info: low battery is red");
+  const inb = await runPage(path.join(WEB, "info.html"), {
+    "/api/v1/status": { ...status, power: { battery: false, battery_low: false, light_sleep: false } }, "/api/v1/config": cfg });
+  check(inb.els["v-bat"].textContent === "None" && inb.els["v-bat"].className === "", "info: a lamp without a battery says so");
   check(i2.els["v-duty"].textContent.endsWith("bench override"), "info: bench override flagged");
   check(i2.els["s-wifi"].textContent === "No connection", "info: lost wifi");
   check(i2.els["s-wifi"].className === "state err", "info: lost wifi is red");
@@ -226,6 +231,7 @@ function check(cond, name) {
   check(s.els.passhint.textContent.includes("leave empty"), "setup: pass hint");
   check(s.els.ntp.value === "pool.ntp.org", "setup: ntp");
   check(s.els.soft.checked === true, "setup: soft switch");
+  check(s.els.battery.checked === true, "setup: battery switch");
   check(s.els.mq_en.checked === true, "setup: mqtt enabled");
   check(s.els.mq_host.value === "mqtt.test", "setup: mqtt host");
   check(s.els.mq_port.value === 1884, "setup: mqtt port");
@@ -263,6 +269,7 @@ function check(cond, name) {
   s3.els.name.value = "Night Light";
   await s3.els.save.onclick();
   check(saved && saved.light.soft === false, "setup: posts the soft switch");
+  check(saved && saved.power.battery === true, "setup: posts the battery switch");
   check(saved && saved.device.name === "Night Light", "setup: posts the device name");
   check(saved && saved.wifi.ssid === "Home" && !("password" in saved.wifi), "setup: untouched password is not sent");
   check(saved && saved.time.ntp_server === "pool.ntp.org", "setup: posts ntp");

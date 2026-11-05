@@ -106,6 +106,8 @@ bool config_merge(const cJSON *root, appconf_t *c, char *err, size_t err_sz)
                         merge_str(o, "tz", c->tz, sizeof c->tz, err, err_sz)));
     ok = ok && section(root, "light", &o, err, err_sz) &&
          (o == NULL || merge_bool(o, "soft", &c->soft_switch, err, err_sz));
+    ok = ok && section(root, "power", &o, err, err_sz) &&
+         (o == NULL || merge_bool(o, "battery", &c->battery, err, err_sz));
     ok = ok && section(root, "mqtt", &o, err, err_sz) &&
          (o == NULL || merge_mqtt(o, c, err, err_sz));
     return ok && appconf_validate(c, err, err_sz);

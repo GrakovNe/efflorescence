@@ -9,9 +9,11 @@ that are not visible in the code.
   flash). MAC `44:b1:76:5d:c6:e0`, device id `c6e0`. Native
   USB-Serial/JTAG; the port is `/dev/cu.usbmodem*` and its name changes
   with the USB socket (`101`, `2101`), so glob for it.
-- Power: Li-ion 4000 mAh through a TP4056 module into VUSB. **USB may be
-  plugged in only with the battery disconnected.** In the case there is
-  no USB and no BOOT/RESET button; the touch sensor is the only control.
+- Power: the bench lamp has a Li-ion 4000 mAh cell through a TP4056
+  module into VUSB. **USB may be plugged in only with the battery
+  disconnected.** The lamps in use will run from 5 V without a battery.
+  In the case there is no USB and no BOOT/RESET button; the touch sensor
+  is the only control.
 - Touch sensor TTP223, powered from GPIOs: module GND = GPIO3 driven low,
   I/O = GPIO4 (high while touched), VCC = GPIO5 driven high.
 - LED: 3 W, switched on the low side by a MOSFET module with an
@@ -262,7 +264,17 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
   clock counts as set after an NTP sync or when the RTC kept it across a
   restart (seen in the boot log: "clock kept across the restart"); after
   a power loss the schedule waits for NTP.
-- Automatic light sleep is on. The lamp task holds a NO_LIGHT_SLEEP lock
+- `cfg->battery` ("Runs on a battery" in Settings, off by default) says
+  whether there is a battery at all. The owner decided on 2026-11-06
+  that the lamps in use will have none: the MOSFET module does not open
+  properly at battery voltage. Everything done for the battery's sake
+  hangs on the flag and is off without it: light sleep, skipping
+  beacons, the five-minute life of the setup AP and the radio going
+  off, the brownout handling with `battery_low` and deep sleep, and the
+  Home Assistant battery entity (removed when the flag is off). The
+  state JSON keeps its `battery_low` field, always false then. Both
+  positions were checked on the bench lamp.
+- With the flag on, automatic light sleep is on. The lamp task holds a NO_LIGHT_SLEEP lock
   (`power_led_active`) while the LED shows anything, because sleep stops
   the PWM clock; with the LED dark the chip dozes between beacons and
   Wi-Fi stays associated. Nothing in the firmware may poll on a short

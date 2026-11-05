@@ -277,6 +277,7 @@ static void copy_tz(appconf_t *dst, const appconf_t *src)
 static void copy_light(appconf_t *dst, const appconf_t *src)
 {
     dst->soft_switch = src->soft_switch;
+    dst->battery = src->battery;
 }
 
 static void copy_mqtt_link(appconf_t *dst, const appconf_t *src)

@@ -57,6 +57,7 @@ static void test_defaults(void)
     CHECK_STR(c.tz, "UTC0");
     CHECK(c.wifi_ssid[0] == '\0');
     CHECK(c.soft_switch == true);
+    CHECK(c.battery == false);
     CHECK(c.mqtt_enabled == false);
     CHECK(c.mqtt_discovery == true);
     CHECK(c.mqtt_port == APPCONF_MQTT_PORT_PLAIN);
@@ -223,11 +224,13 @@ static void test_sanitize(void)
     strcpy(c.ntp_server, "ntp.example.org");
     strcpy(c.tz, "MSK-3");
     c.soft_switch = false;
+    c.battery = true;
     c.mqtt_enabled = true;
     strcpy(c.mqtt_host, "192.168.1.102");
     strcpy(c.mqtt_prefix, "home/lamp");
     CHECK(appconf_sanitize(&c, ID) == 1);
     CHECK_STR(c.tz, "MSK-3");
+    CHECK(c.battery == true);
     CHECK(c.mqtt_enabled && strcmp(c.mqtt_host, "192.168.1.102") == 0);
     CHECK_STR(c.mqtt_prefix, "home/lamp");
 
@@ -247,6 +250,7 @@ static void test_sanitize(void)
      * firmware and cannot hold anything but 0 or 1. */
     memset(&c, 0xff, sizeof c);
     c.soft_switch = true;
+    c.battery = true;
     c.mqtt_enabled = true;
     c.mqtt_tls = true;
     c.mqtt_skip_verify = true;

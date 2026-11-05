@@ -47,6 +47,7 @@ typedef struct {
 
     wifi_mgr_mode_t mode;
     int64_t mode_since_us;
+    bool battery;
     bool ap_up;
     int64_t ap_since_us;
     int ap_clients;
@@ -161,9 +162,11 @@ static void ap_stop(void)
     ESP_LOGI(TAG, "AP off");
 }
 
+/* On a battery only: with a supply the AP stays for as long as it is
+ * needed. */
 static bool ap_expired(int64_t now)
 {
-    return s_mgr.ap_up && s_mgr.ap_clients == 0 &&
+    return s_mgr.battery && s_mgr.ap_up && s_mgr.ap_clients == 0 &&
            now - s_mgr.ap_since_us >= AP_LIFETIME_US;
 }
 
@@ -215,7 +218,9 @@ static void sta_connect(void)
     wifi_config_t st = { 0 };
     strlcpy((char *)st.sta.ssid, s_mgr.ssid, sizeof st.sta.ssid);
     strlcpy((char *)st.sta.password, s_mgr.password, sizeof st.sta.password);
-    st.sta.listen_interval = CONFIG_APP_WIFI_LISTEN_INTERVAL;
+    if (s_mgr.battery) {
+        st.sta.listen_interval = CONFIG_APP_WIFI_LISTEN_INTERVAL;
+    }
     st.sta.threshold.authmode =
         s_mgr.password[0] != '\0' ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
 
@@ -446,6 +451,7 @@ static void mgr_task(void *arg)
 void wifi_mgr_start(const appconf_t *cfg, const char device_id[5])
 {
     mgr_t *m = &s_mgr;
+    m->battery = cfg->battery;
     strlcpy(m->ssid, cfg->wifi_ssid, sizeof m->ssid);
     strlcpy(m->password, cfg->wifi_password, sizeof m->password);
     appconf_default_name(device_id, m->ap_ssid, sizeof m->ap_ssid);
@@ -477,8 +483,9 @@ void wifi_mgr_start(const appconf_t *cfg, const char device_id[5])
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
     ESP_ERROR_CHECK(esp_wifi_start());
-    /* The radio sleeps between beacons and stays associated. */
-    ESP_ERROR_CHECK(esp_wifi_set_ps(CONFIG_APP_WIFI_LISTEN_INTERVAL > 1
+    /* The radio sleeps between beacons and stays associated. On a
+     * battery it may skip beacons as well. */
+    ESP_ERROR_CHECK(esp_wifi_set_ps(cfg->battery && CONFIG_APP_WIFI_LISTEN_INTERVAL > 1
                                         ? WIFI_PS_MAX_MODEM
                                         : WIFI_PS_MIN_MODEM));
 

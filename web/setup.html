@@ -175,6 +175,15 @@ footer .l + .l { margin-top:4px; }
   </section>
 
   <section class="sec">
+    <div class="lab">Power</div>
+    <div class="fields">
+      <div class="chks">
+        <label class="chk"><input type="checkbox" id="battery"><span>Runs on a battery</span></label>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
     <div class="lab">MQTT</div>
     <div class="fields">
       <div class="chks">
@@ -618,6 +627,7 @@ $("save").onclick = async () => {
     wifi: { ssid: selectedSsid },
     time: { ntp_server: $("ntp").value, tz: $("tz").value },
     light: { soft: $("soft").checked },
+    power: { battery: $("battery").checked },
     mqtt: {
       enabled: $("mq_en").checked,
       host: $("mq_host").value,
@@ -667,6 +677,7 @@ function fill(j) {
   if (j.time) $("ntp").value = j.time.ntp_server || DEF_NTP;
   tzOptions(j.time && j.time.tz ? j.time.tz : "UTC0");
   if (j.light) $("soft").checked = !!j.light.soft;
+  if (j.power) $("battery").checked = !!j.power.battery;
   const m = j.mqtt;
   if (m) {
     $("mq_en").checked = !!m.enabled;

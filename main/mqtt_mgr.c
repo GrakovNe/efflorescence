@@ -109,10 +109,12 @@ static void publish_discovery(void)
     for (int e = 0; e < HA_ENTITY_COUNT; e++) {
         char topic[HA_TOPIC_MAX];
         ha_config_topic(&ctx.dev, (ha_entity_t)e, topic, sizeof topic);
-        /* An empty retained config removes the entity. */
-        char *json = ctx.cfg->mqtt_discovery ? ha_config_json(&ctx.dev, (ha_entity_t)e)
-                                             : NULL;
-        if (ctx.cfg->mqtt_discovery && json == NULL) {
+        /* An empty retained config removes the entity: all of them with
+         * discovery off, the battery one on a lamp that has no battery. */
+        bool wanted = ctx.cfg->mqtt_discovery &&
+                      (e != HA_BATTERY || ctx.cfg->battery);
+        char *json = wanted ? ha_config_json(&ctx.dev, (ha_entity_t)e) : NULL;
+        if (wanted && json == NULL) {
             ok = false;
         } else if (!publish(topic, json != NULL ? json : "", true)) {
             ok = false;

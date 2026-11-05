@@ -11,9 +11,13 @@
 extern "C" {
 #endif
 
-/* Turns on automatic light sleep. Wi-Fi stays associated; the chip dozes
- * between beacons whenever nothing holds it awake. */
-void power_start(void);
+/* On a battery: turns on automatic light sleep. Wi-Fi stays associated;
+ * the chip dozes between beacons whenever nothing holds it awake.
+ * Without one there is nothing to save and the chip stays awake. */
+void power_start(bool battery);
+
+/* Whether the chip may sleep at all. */
+bool power_sleeps(void);
 
 /* The LED needs the PWM clock, which light sleep stops. Called by the
  * lamp task only: true before the LED gets a duty, false once it is

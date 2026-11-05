@@ -48,13 +48,19 @@ static void test_all_sections(void)
     CHECK(merge(&c, "{\"device\":{\"name\":\"Lamp\"},"
                     "\"wifi\":{\"ssid\":\"Home\",\"password\":\"secret123\"},"
                     "\"time\":{\"ntp_server\":\"ntp.example.org\",\"tz\":\"MSK-3\"},"
-                    "\"light\":{\"soft\":false}}", err, sizeof err));
+                    "\"light\":{\"soft\":false},\"power\":{\"battery\":true}}",
+                err, sizeof err));
     CHECK_STR(c.device_name, "Lamp");
     CHECK_STR(c.wifi_ssid, "Home");
     CHECK_STR(c.wifi_password, "secret123");
     CHECK_STR(c.ntp_server, "ntp.example.org");
     CHECK_STR(c.tz, "MSK-3");
     CHECK(c.soft_switch == false);
+    CHECK(c.battery == true);
+    CHECK(merge(&c, "{\"power\":{\"battery\":false}}", err, sizeof err));
+    CHECK(c.battery == false);
+    CHECK(!merge(&c, "{\"power\":{\"battery\":1}}", err, sizeof err));
+    CHECK(strstr(err, "true or false") != NULL);
 
     /* An open network: the page sends an empty password. */
     CHECK(merge(&c, "{\"wifi\":{\"ssid\":\"Guest\",\"password\":\"\"}}", err,
