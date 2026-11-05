@@ -24,7 +24,12 @@ static const char *TAG = "touch";
 #define SAMPLE_MS 10
 #define SETTLE_MS 600 /* the TTP223 calibrates itself after power-up */
 
+#define POWER_OFF_MS 150
+
 static TaskHandle_t s_task;
+static volatile bool s_trace;
+static volatile bool s_reset;
+static unsigned s_stuck;
 
 static void IRAM_ATTR touch_isr(void *arg)
 {
@@ -38,6 +43,8 @@ static void IRAM_ATTR touch_isr(void *arg)
         portYIELD_FROM_ISR();
     }
 }
+
+static void power_cycle(void);
 
 static void dispatch(gesture_event_t ev, uint8_t taps)
 {
@@ -76,9 +83,60 @@ static void dispatch(gesture_event_t ev, uint8_t taps)
         lamp_signal(LAMP_SIGNAL_NONE);
         reset_request_factory();
         break;
+    case GESTURE_STUCK:
+        /* The output stays high with no finger on it; left alone the
+         * sensor takes ten seconds and more to notice. Cutting its power
+         * makes it calibrate again at once. */
+        s_stuck++;
+        ESP_LOGW(TAG, "sensor stuck high (%u since boot): hold undone, "
+                 "cycling its power", s_stuck);
+        lamp_hold_cancel();
+        power_cycle();
+        break;
     case GESTURE_NONE:
         break;
     }
+}
+
+/* What the sensor output itself does, for the bench: the gestures above
+ * are what the firmware made of it. */
+typedef struct {
+    bool    level;
+    int64_t since_ms;
+    int64_t said_ms;
+} trace_t;
+
+static void trace(trace_t *t, bool level, bool woke, int64_t now_ms)
+{
+    if (level != t->level) {
+        if (s_trace) {
+            ESP_LOGI(TAG, "raw %d after %lld ms of %d%s", level,
+                     (long long)(now_ms - t->since_ms), t->level,
+                     woke ? ", woke the task" : "");
+        }
+        t->level = level;
+        t->since_ms = now_ms;
+        t->said_ms = now_ms;
+    } else if (s_trace && woke) {
+        ESP_LOGI(TAG, "woke with raw still %d", level);
+    } else if (s_trace && level && now_ms - t->said_ms >= 1000) {
+        ESP_LOGI(TAG, "raw still 1, %lld ms now", (long long)(now_ms - t->since_ms));
+        t->said_ms = now_ms;
+    }
+}
+
+static void power_cycle(void)
+{
+    if (CONFIG_APP_TOUCH_VCC_GPIO < 0) {
+        return;
+    }
+    ESP_LOGW(TAG, "sensor power off for %d ms", POWER_OFF_MS);
+    gpio_set_level(CONFIG_APP_TOUCH_VCC_GPIO, 0);
+    vTaskDelay(pdMS_TO_TICKS(POWER_OFF_MS));
+    gpio_set_level(CONFIG_APP_TOUCH_VCC_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(SETTLE_MS));
+    ESP_LOGW(TAG, "sensor back, raw %d",
+             gpio_get_level(CONFIG_APP_TOUCH_IO_GPIO));
 }
 
 static void touch_task(void *arg)
@@ -88,19 +146,57 @@ static void touch_task(void *arg)
 
     gesture_t g;
     gesture_init(&g);
+    trace_t tr = { .since_ms = esp_timer_get_time() / 1000 };
     for (;;) {
         /* Sampling runs only while a gesture is in flight; otherwise the
          * task sleeps until the sensor output moves. */
+        bool woke = false;
         if (gesture_active(&g)) {
             vTaskDelay(pdMS_TO_TICKS(SAMPLE_MS));
         } else {
             gpio_intr_enable(CONFIG_APP_TOUCH_IO_GPIO);
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            woke = true;
+        }
+        if (s_reset) {
+            s_reset = false;
+            if (g.phase == GESTURE_PHASE_HOLD) {
+                lamp_hold_end();
+            }
+            lamp_signal(LAMP_SIGNAL_NONE);
+            power_cycle();
+            gesture_init(&g);
+            woke = false;
         }
         bool touched = gpio_get_level(CONFIG_APP_TOUCH_IO_GPIO) == 1;
-        gesture_event_t ev = gesture_feed(&g, touched,
-                                          esp_timer_get_time() / 1000);
+        int64_t now_ms = esp_timer_get_time() / 1000;
+        trace(&tr, touched, woke, now_ms);
+        gesture_event_t ev = gesture_feed(&g, touched, now_ms);
         dispatch(ev, g.taps);
+    }
+}
+
+void touch_set_trace(bool on)
+{
+    s_trace = on;
+    ESP_LOGW(TAG, "raw trace %s", on ? "on" : "off");
+}
+
+bool touch_trace(void)
+{
+    return s_trace;
+}
+
+unsigned touch_stuck_count(void)
+{
+    return s_stuck;
+}
+
+void touch_reset_sensor(void)
+{
+    s_reset = true;
+    if (s_task != NULL) {
+        xTaskNotifyGive(s_task);
     }
 }
 

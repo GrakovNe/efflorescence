@@ -191,6 +191,11 @@ void lamp_core_hold_begin(lamp_core_t *c, int64_t now_ms)
     lamp_core_tick(c, now_ms);
     c->fading = false;
 
+    c->held_on = c->on;
+    c->held_brightness = c->brightness;
+    c->held_dir = c->ramp_dir;
+    c->held_valid = true;
+
     if (!c->on) {
         c->on = true;
         c->seq++;
@@ -216,6 +221,18 @@ void lamp_core_hold_end(lamp_core_t *c, int64_t now_ms)
     lamp_core_tick(c, now_ms);
     c->ramping = false;
     c->ramp_dir = (int8_t)-c->ramp_dir;
+}
+
+void lamp_core_hold_cancel(lamp_core_t *c, int64_t now_ms)
+{
+    if (!c->held_valid) {
+        return;
+    }
+    c->held_valid = false;
+    int8_t dir = c->held_dir;
+    lamp_core_set(c, now_ms, c->held_on, c->held_brightness,
+                  LAMP_TRANSITION_SOFT);
+    c->ramp_dir = dir;
 }
 
 void lamp_core_signal(lamp_core_t *c, int64_t now_ms, lamp_signal_t signal)

@@ -12,10 +12,17 @@ extern "C" {
 #endif
 
 #define GESTURE_DEBOUNCE_MS   20
-#define GESTURE_HOLD_MS       400  /* a longer press is a hold, a shorter one a tap */
+/* A longer press is a hold, a shorter one a tap. On this lamp the
+ * sensor's output for a tap lasts 150..770 ms (traced on 2026-11-06,
+ * 23 taps) and the shortest hold meant as one about 960 ms. */
+#define GESTURE_HOLD_MS       800
 #define GESTURE_SERIES_GAP_MS 500  /* taps closer than this make one series */
 #define GESTURE_RESET_TAPS    5    /* exactly this many taps, then a hold */
 #define GESTURE_RESET_HOLD_MS 5000
+/* A plain hold sweeps the whole brightness range in three seconds. One
+ * that lasts this long is not a finger: the sensor's output has stuck
+ * high (seen on 2026-11-06: 13.6 s after a tap, the lamp ran to full). */
+#define GESTURE_STUCK_MS      6000
 
 typedef enum {
     GESTURE_NONE,
@@ -27,6 +34,8 @@ typedef enum {
     GESTURE_RESET_READY,  /* held long enough: a release resets */
     GESTURE_RESET_CANCEL, /* released too early */
     GESTURE_RESET_FIRE,
+    GESTURE_STUCK,        /* the hold is not one; again every GESTURE_STUCK_MS
+                             for as long as the output stays high */
 } gesture_event_t;
 
 typedef enum {
@@ -35,6 +44,7 @@ typedef enum {
     GESTURE_PHASE_HOLD,
     GESTURE_PHASE_RESET_ARMED,
     GESTURE_PHASE_RESET_READY,
+    GESTURE_PHASE_STUCK,  /* nothing counts until the output drops */
 } gesture_phase_t;
 
 typedef struct {

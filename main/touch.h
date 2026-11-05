@@ -8,7 +8,20 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
 void touch_start(void);
+
+/* Bench: log every move of the sensor output, not only the gestures. */
+void touch_set_trace(bool on);
+bool touch_trace(void);
+
+/* Bench: cut the sensor's power for a moment so it calibrates again. */
+void touch_reset_sensor(void);
+
+/* How many times since boot the sensor stuck high and had its power
+ * cycled for it. */
+unsigned touch_stuck_count(void);
 
 #ifdef __cplusplus
 }

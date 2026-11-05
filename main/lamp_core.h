@@ -55,6 +55,12 @@ typedef struct {
     uint16_t ramp_from;
     int64_t  ramp_start_ms;
 
+    /* What a hold found, in case it turns out not to have been one. */
+    bool     held_on;
+    uint8_t  held_brightness;
+    int8_t   held_dir;
+    bool     held_valid;
+
     lamp_signal_t signal;
     int64_t  signal_start_ms;
 } lamp_core_t;
@@ -78,6 +84,9 @@ void lamp_core_toggle(lamp_core_t *c, int64_t now_ms, uint32_t transition_ms);
 void lamp_core_hold_begin(lamp_core_t *c, int64_t now_ms);
 
 void lamp_core_hold_end(lamp_core_t *c, int64_t now_ms);
+
+/* The hold was a stuck sensor: go back to how things were before it. */
+void lamp_core_hold_cancel(lamp_core_t *c, int64_t now_ms);
 
 void lamp_core_signal(lamp_core_t *c, int64_t now_ms, lamp_signal_t signal);
 

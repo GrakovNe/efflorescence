@@ -216,6 +216,14 @@ void lamp_hold_end(void)
     wake();
 }
 
+void lamp_hold_cancel(void)
+{
+    xSemaphoreTake(ctx.lock, portMAX_DELAY);
+    lamp_core_hold_cancel(&ctx.core, now_ms());
+    xSemaphoreGive(ctx.lock);
+    wake();
+}
+
 void lamp_signal(lamp_signal_t signal)
 {
     xSemaphoreTake(ctx.lock, portMAX_DELAY);

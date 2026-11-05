@@ -30,6 +30,9 @@ static gesture_event_t on_release(gesture_t *g)
         return GESTURE_RESET_CANCEL;
     case GESTURE_PHASE_RESET_READY:
         return GESTURE_RESET_FIRE;
+    case GESTURE_PHASE_STUCK:
+        g->series = 0;
+        return GESTURE_NONE;
     default:
         return GESTURE_NONE;
     }
@@ -78,6 +81,13 @@ gesture_event_t gesture_feed(gesture_t *g, bool touched, int64_t now_ms)
         held_ms >= GESTURE_RESET_HOLD_MS) {
         g->phase = GESTURE_PHASE_RESET_READY;
         return GESTURE_RESET_READY;
+    }
+    if ((g->phase == GESTURE_PHASE_HOLD || g->phase == GESTURE_PHASE_STUCK) &&
+        held_ms >= GESTURE_STUCK_MS) {
+        g->phase = GESTURE_PHASE_STUCK;
+        /* Count the next round from here. */
+        g->press_ms = now_ms;
+        return GESTURE_STUCK;
     }
     return GESTURE_NONE;
 }

@@ -40,6 +40,9 @@ void lamp_hold_begin(void);
 
 void lamp_hold_end(void);
 
+/* The hold was a stuck sensor: put everything back. */
+void lamp_hold_cancel(void);
+
 void lamp_signal(lamp_signal_t signal);
 
 void lamp_get(lamp_status_t *out);

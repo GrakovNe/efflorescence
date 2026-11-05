@@ -36,6 +36,7 @@
 #include "sched_mgr.h"
 #include "settings.h"
 #include "time_mgr.h"
+#include "touch.h"
 #include "wifi_mgr.h"
 
 #include "setup_html.h"
@@ -415,6 +416,12 @@ static esp_err_t handler_status(httpd_req_t *req)
     }
     add_str_or_null(wifi, "last_disconnect", w.last_disconnect);
 
+    cJSON *touch = cJSON_AddObjectToObject(root, "touch");
+    if (touch != NULL) {
+        cJSON_AddNumberToObject(touch, "stuck", touch_stuck_count());
+        cJSON_AddBoolToObject(touch, "trace", touch_trace());
+    }
+
     mqtt_mgr_status_t mq;
     mqtt_mgr_get_status(&mq);
     cJSON_AddBoolToObject(mqtt, "enabled", mq.enabled);
@@ -757,6 +764,32 @@ static esp_err_t handler_debug_battery(httpd_req_t *req)
     return r;
 }
 
+/* Bench tool: {"trace": true | false} logs every move of the sensor
+ * output; {"reset": true} cuts the sensor's power for a moment. */
+static esp_err_t handler_debug_touch(httpd_req_t *req)
+{
+    char body[CMD_BODY_MAX];
+    if (read_body(req, body, sizeof body) < 0) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, NULL);
+    }
+    cJSON *root = cJSON_Parse(body);
+    const cJSON *tr = cJSON_GetObjectItemCaseSensitive(root, "trace");
+    const cJSON *rs = cJSON_GetObjectItemCaseSensitive(root, "reset");
+    if (cJSON_IsBool(tr)) {
+        touch_set_trace(cJSON_IsTrue(tr));
+    }
+    if (cJSON_IsTrue(rs)) {
+        touch_reset_sensor();
+    }
+    cJSON_Delete(root);
+    cJSON *o = cJSON_CreateObject();
+    if (o == NULL) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, NULL);
+    }
+    cJSON_AddBoolToObject(o, "trace", touch_trace());
+    return send_json(req, "200 OK", o);
+}
+
 /* Bench tool: {"duty": 0..duty_max, "freq_hz": n} drives the LED raw,
  * {"duty": null} hands it back to the lamp. */
 static esp_err_t handler_debug_pwm(httpd_req_t *req)
@@ -876,6 +909,7 @@ void web_server_start(const appconf_t *cfg, const char device_id[5])
         { .uri = "/api/v1/debug/pm", .method = HTTP_GET, .handler = handler_debug_pm },
         { .uri = "/api/v1/debug/battery", .method = HTTP_POST, .handler = handler_debug_battery },
         { .uri = "/api/v1/debug/battery", .method = HTTP_OPTIONS, .handler = handler_options },
+        { .uri = "/api/v1/debug/touch", .method = HTTP_POST, .handler = handler_debug_touch },
         { .uri = "/api/v1/debug/pwm", .method = HTTP_POST, .handler = handler_debug_pwm },
         { .uri = "/api/v1/debug/pwm", .method = HTTP_OPTIONS, .handler = handler_options },
     };

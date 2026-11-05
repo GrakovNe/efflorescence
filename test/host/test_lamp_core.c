@@ -412,6 +412,43 @@ static void test_hold_takes_over_fade(void)
     CHECK(c.level == kept && !lamp_core_busy(&c));
 }
 
+/* A hold that was a stuck sensor is undone: brightness, state and the
+ * direction of the next hold are as they were. */
+static void test_hold_cancel(void)
+{
+    lamp_core_t c;
+    lamp_core_init(&c, true, 40, FLOOR);
+    lamp_core_hold_begin(&c, 0);
+    lamp_core_tick(&c, 6000);
+    CHECK(c.level == MAX && c.brightness == 100);
+    lamp_core_hold_cancel(&c, 6000);
+    CHECK(c.on && c.brightness == 40);
+    lamp_core_tick(&c, 6000 + LAMP_SOFT_MS);
+    CHECK(c.level == LVL(40) && !lamp_core_busy(&c));
+    /* The hold that follows goes up again, as the cancelled one did. */
+    lamp_core_hold_begin(&c, 10000);
+    lamp_core_tick(&c, 10300);
+    CHECK(c.level > LVL(40));
+    lamp_core_hold_end(&c, 10300);
+
+    /* From a dark lamp: dark again. */
+    lamp_core_init(&c, false, 70, FLOOR);
+    lamp_core_hold_begin(&c, 0);
+    lamp_core_tick(&c, 6000);
+    CHECK(c.on && c.level == MAX);
+    lamp_core_hold_cancel(&c, 6000);
+    CHECK(!c.on && c.brightness == 70);
+    lamp_core_tick(&c, 8000);
+    CHECK(c.level == 0 && !lamp_core_busy(&c));
+
+    /* Nothing to undo: nothing happens. */
+    lamp_core_hold_cancel(&c, 9000);
+    CHECK(!c.on && c.level == 0 && c.brightness == 70);
+    lamp_core_init(&c, true, 30, FLOOR);
+    lamp_core_hold_cancel(&c, 100);
+    CHECK(c.on && c.brightness == 30 && !lamp_core_busy(&c));
+}
+
 static void test_set_ends_hold(void)
 {
     lamp_core_t c;
@@ -466,6 +503,7 @@ int main(void)
     test_hold_alternates();
     test_hold_from_off();
     test_hold_takes_over_fade();
+    test_hold_cancel();
     test_set_ends_hold();
     test_signal();
     REPORT();

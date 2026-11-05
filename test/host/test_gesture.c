@@ -72,10 +72,25 @@ static void test_glitch_ignored(void)
     CHECK(r.n == 0 && !gesture_active(&r.g));
 
     /* A dropout shorter than the debounce does not split a hold. */
-    run(&r, true, 300);
+    run(&r, true, GESTURE_HOLD_MS * 3 / 4);
     run(&r, false, 10);
-    run(&r, true, 300);
+    run(&r, true, GESTURE_HOLD_MS * 3 / 4);
     CHECK(r.n == 1 && r.ev[0] == GESTURE_HOLD_BEGIN);
+}
+
+/* The longest tap traced on the lamp, and the shortest hold. */
+static void test_slow_tap_is_a_tap(void)
+{
+    rig_t r;
+    rig_init(&r);
+    run(&r, true, 770);
+    run(&r, false, 100);
+    CHECK(r.n == 1 && r.ev[0] == GESTURE_TAP);
+
+    rig_init(&r);
+    run(&r, true, 960);
+    run(&r, false, 100);
+    CHECK(r.n == 2 && r.ev[0] == GESTURE_HOLD_BEGIN && r.ev[1] == GESTURE_HOLD_END);
 }
 
 static void test_hold(void)
@@ -91,6 +106,52 @@ static void test_hold(void)
     run(&r, false, 1000);
     CHECK(r.n == 2 && r.ev[1] == GESTURE_HOLD_END);
     CHECK(!gesture_active(&r.g));
+}
+
+/* A hold that outlasts anything a finger would do. */
+static void test_stuck(void)
+{
+    rig_t r;
+    rig_init(&r);
+    int64_t start = r.now;
+    run(&r, true, GESTURE_STUCK_MS + 500);
+    CHECK(r.n == 2 && r.ev[0] == GESTURE_HOLD_BEGIN && r.ev[1] == GESTURE_STUCK);
+    CHECK(r.at[1] - start >= GESTURE_STUCK_MS);
+    CHECK(r.at[1] - start <= GESTURE_STUCK_MS + STEP_MS);
+
+    /* Still high: said again, at the same interval. */
+    run(&r, true, GESTURE_STUCK_MS);
+    CHECK(r.n == 3 && r.ev[2] == GESTURE_STUCK);
+    CHECK(r.at[2] - r.at[1] >= GESTURE_STUCK_MS);
+
+    /* When it lets go that is not the end of a hold, and the sensor
+     * works as before. */
+    run(&r, false, 1000);
+    CHECK(r.n == 3 && !gesture_active(&r.g));
+    tap(&r);
+    CHECK(r.n == 4 && r.ev[3] == GESTURE_TAP && r.taps[3] == 1);
+
+    /* A long hold that ends in time is a hold. */
+    rig_init(&r);
+    run(&r, true, GESTURE_STUCK_MS - 500);
+    run(&r, false, 100);
+    CHECK(r.n == 2 && r.ev[1] == GESTURE_HOLD_END);
+}
+
+/* The reset hold is long on purpose and is never taken for a stuck
+ * sensor. */
+static void test_reset_hold_is_not_stuck(void)
+{
+    rig_t r;
+    rig_init(&r);
+    for (int i = 0; i < GESTURE_RESET_TAPS; i++) {
+        tap(&r);
+    }
+    run(&r, true, GESTURE_RESET_HOLD_MS + GESTURE_STUCK_MS + 3000);
+    run(&r, false, 100);
+    CHECK(r.ev[r.n - 3] == GESTURE_RESET_ARMED);
+    CHECK(r.ev[r.n - 2] == GESTURE_RESET_READY);
+    CHECK(r.ev[r.n - 1] == GESTURE_RESET_FIRE);
 }
 
 static void test_series(void)
@@ -168,11 +229,11 @@ static void test_reset_cancelled(void)
 static void test_reset_needs_exact_count(void)
 {
     rig_t r;
-    taps_then_hold(&r, GESTURE_RESET_TAPS - 1, 6000);
+    taps_then_hold(&r, GESTURE_RESET_TAPS - 1, GESTURE_STUCK_MS - 500);
     CHECK(r.ev[GESTURE_RESET_TAPS - 1] == GESTURE_HOLD_BEGIN);
     CHECK(r.ev[GESTURE_RESET_TAPS] == GESTURE_HOLD_END);
 
-    taps_then_hold(&r, GESTURE_RESET_TAPS + 1, 6000);
+    taps_then_hold(&r, GESTURE_RESET_TAPS + 1, GESTURE_STUCK_MS - 500);
     CHECK(r.ev[GESTURE_RESET_TAPS + 1] == GESTURE_HOLD_BEGIN);
     CHECK(r.ev[GESTURE_RESET_TAPS + 2] == GESTURE_HOLD_END);
 }
@@ -185,7 +246,7 @@ static void test_reset_needs_unbroken_series(void)
         tap(&r);
     }
     run(&r, false, 600);
-    run(&r, true, 6000);
+    run(&r, true, GESTURE_STUCK_MS - 500);
     run(&r, false, 100);
     CHECK(r.ev[r.n - 2] == GESTURE_HOLD_BEGIN);
     CHECK(r.ev[r.n - 1] == GESTURE_HOLD_END);
@@ -195,7 +256,10 @@ int main(void)
 {
     test_tap();
     test_glitch_ignored();
+    test_slow_tap_is_a_tap();
     test_hold();
+    test_stuck();
+    test_reset_hold_is_not_stuck();
     test_series();
     test_series_ends_before_late_press();
     test_reset_fires();
