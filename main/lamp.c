@@ -49,6 +49,10 @@ static struct {
     uint32_t told_seq;
     bool told_soft;
 
+    void (*volatile settled)(void);
+    uint32_t rest_duty;
+    bool was_busy;
+
     uint32_t saved_seq;
     uint32_t seen_seq;
     int64_t changed_ms;
@@ -153,6 +157,11 @@ static void lamp_task(void *arg)
         }
         uint32_t seq = ctx.core.seq;
         bool soft = ctx.cfg->soft_switch;
+        bool at_rest = !busy && (ctx.was_busy || duty != ctx.rest_duty);
+        ctx.was_busy = busy;
+        if (!busy) {
+            ctx.rest_duty = duty;
+        }
         xSemaphoreGive(ctx.lock);
 
         void (*changed)(void) = ctx.changed;
@@ -160,6 +169,10 @@ static void lamp_task(void *arg)
             ctx.told_seq = seq;
             ctx.told_soft = soft;
             changed();
+        }
+        void (*settled)(void) = ctx.settled;
+        if (settled != NULL && at_rest) {
+            settled();
         }
 
         ulTaskNotifyTake(pdTRUE, wait);
@@ -261,12 +274,18 @@ void lamp_get(lamp_status_t *out)
     out->freq_hz = ctx.freq_hz;
     out->raw = ctx.raw_duty >= 0;
     out->steady = ctx.steady;
+    out->busy = lamp_core_busy(&ctx.core);
     xSemaphoreGive(ctx.lock);
 }
 
 void lamp_set_listener(void (*changed)(void))
 {
     ctx.changed = changed;
+}
+
+void lamp_set_settle_listener(void (*settled)(void))
+{
+    ctx.settled = settled;
 }
 
 void lamp_flush(void)

@@ -215,6 +215,17 @@ curl -d '{"duty":null}' http://efflorescence-c6e0.local/api/v1/debug/pwm
 - The touch task samples only while a gesture is in flight and otherwise
   sleeps on a GPIO edge interrupt. Keep it that way: constant polling
   would defeat light sleep.
+- The TTP223 in this package has no touch time-out, does not calibrate
+  for 16 s after a touch, and takes a supply that has moved for a touch
+  (datasheet): its output then stays high for good. Against that, since
+  2026-11-06: its two supply pins run at the strongest drive; a hold
+  longer than `GESTURE_STUCK_MS` (4.5 s; a full sweep is 3.8 s from the
+  press) is undone and the sensor's power cycled; and every time the
+  light comes to rest at a new duty the sensor's power is cycled so it
+  calibrates there (`lamp_set_settle_listener` → `touch.c`), never in the
+  middle of a gesture. The sensor is deaf for 0.75 s each time. Whether
+  the LED current really is the cause has not been shown; the cure
+  known to work is 100 nF across the sensor's VCC and GND.
 - The partition table has two OTA slots and the bootloader is built with
   app rollback. Neither can be changed over the air, and the device is
   sealed, so do not change them casually.

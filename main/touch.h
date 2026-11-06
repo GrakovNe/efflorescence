@@ -23,6 +23,10 @@ void touch_reset_sensor(void);
  * cycled for it. */
 unsigned touch_stuck_count(void);
 
+/* How many times since boot the sensor was made to calibrate again
+ * because the light had come to rest at a new level. */
+unsigned touch_recal_count(void);
+
 #ifdef __cplusplus
 }
 #endif

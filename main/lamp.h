@@ -28,6 +28,7 @@ typedef struct {
     uint32_t freq_hz;
     bool     raw; /* the bench override drives the LED, not the state */
     bool     steady; /* full brightness: the pin is high, no PWM */
+    bool     busy; /* a fade, a hold ramp or a signal is running */
 } lamp_status_t;
 
 /* Not const: a soft on/off change is stored in cfg. */
@@ -51,6 +52,11 @@ void lamp_get(lamp_status_t *out);
 /* Called on the lamp task, outside its lock, after on or brightness
  * changed. One listener; it must not block. */
 void lamp_set_listener(void (*changed)(void));
+
+/* Called on the lamp task, outside its lock, when the light has come to
+ * rest: after every fade or ramp, and after a change with no fade at
+ * all. One listener; it must not block. */
+void lamp_set_settle_listener(void (*settled)(void));
 
 /* Saves a pending state change now, for use right before a restart. */
 void lamp_flush(void);

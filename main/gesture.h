@@ -19,10 +19,12 @@ extern "C" {
 #define GESTURE_SERIES_GAP_MS 500  /* taps closer than this make one series */
 #define GESTURE_RESET_TAPS    5    /* exactly this many taps, then a hold */
 #define GESTURE_RESET_HOLD_MS 5000
-/* A plain hold sweeps the whole brightness range in three seconds. One
- * that lasts this long is not a finger: the sensor's output has stuck
- * high (seen on 2026-11-06: 13.6 s after a tap, the lamp ran to full). */
-#define GESTURE_STUCK_MS      6000
+/* A plain hold becomes one at GESTURE_HOLD_MS and then sweeps the whole
+ * brightness range in three seconds, 3.8 s from the press. One that
+ * lasts this long is not a finger: the sensor's output has stuck high
+ * (seen on 2026-11-06: 13.6 s after a tap, the lamp ran to full). The
+ * 0.7 s on top is for the finger to notice the light has stopped. */
+#define GESTURE_STUCK_MS      4500
 
 typedef enum {
     GESTURE_NONE,

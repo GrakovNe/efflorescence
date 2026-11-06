@@ -427,6 +427,7 @@ static esp_err_t handler_status(httpd_req_t *req)
     cJSON *touch = cJSON_AddObjectToObject(root, "touch");
     if (touch != NULL) {
         cJSON_AddNumberToObject(touch, "stuck", touch_stuck_count());
+        cJSON_AddNumberToObject(touch, "recalibrated", touch_recal_count());
         cJSON_AddBoolToObject(touch, "trace", touch_trace());
     }
 

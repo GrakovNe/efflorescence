@@ -4,6 +4,8 @@
  */
 #include "touch.h"
 
+#include <stdint.h>
+
 #include "driver/gpio.h"
 #include "esp_attr.h"
 #include "esp_log.h"
@@ -29,7 +31,13 @@ static const char *TAG = "touch";
 static TaskHandle_t s_task;
 static volatile bool s_trace;
 static volatile bool s_reset;
+static volatile bool s_settled;
 static unsigned s_stuck;
+static unsigned s_recal;
+
+/* The LED duty the sensor last calibrated itself at. Touch task only. */
+#define CAL_UNKNOWN UINT32_MAX
+static uint32_t s_cal_duty = CAL_UNKNOWN;
 
 static void IRAM_ATTR touch_isr(void *arg)
 {
@@ -89,9 +97,12 @@ static void dispatch(gesture_event_t ev, uint8_t taps)
          * makes it calibrate again at once. */
         s_stuck++;
         ESP_LOGW(TAG, "sensor stuck high (%u since boot): hold undone, "
-                 "cycling its power", s_stuck);
+                 "its power cycled", s_stuck);
         lamp_hold_cancel();
         power_cycle();
+        /* That was in the middle of the ramp: once more when the light
+         * is back where it was. */
+        s_cal_duty = CAL_UNKNOWN;
         break;
     case GESTURE_NONE:
         break;
@@ -130,13 +141,38 @@ static void power_cycle(void)
     if (CONFIG_APP_TOUCH_VCC_GPIO < 0) {
         return;
     }
-    ESP_LOGW(TAG, "sensor power off for %d ms", POWER_OFF_MS);
     gpio_set_level(CONFIG_APP_TOUCH_VCC_GPIO, 0);
     vTaskDelay(pdMS_TO_TICKS(POWER_OFF_MS));
     gpio_set_level(CONFIG_APP_TOUCH_VCC_GPIO, 1);
     vTaskDelay(pdMS_TO_TICKS(SETTLE_MS));
-    ESP_LOGW(TAG, "sensor back, raw %d",
-             gpio_get_level(CONFIG_APP_TOUCH_IO_GPIO));
+    if (gpio_get_level(CONFIG_APP_TOUCH_IO_GPIO) == 1) {
+        ESP_LOGW(TAG, "sensor output high right after its power-up");
+    }
+}
+
+/* The LED's current moves the supply, and the sensor takes a supply that
+ * has moved for a touch: for 16 s after a touch it does not calibrate
+ * (datasheet), and its output then stays high for good. So once the
+ * light is at rest at a new level the sensor gets a fresh start there.
+ * It is deaf for POWER_OFF_MS + SETTLE_MS while that happens. */
+static void recalibrate(void)
+{
+    lamp_status_t st;
+    lamp_get(&st);
+    if (st.busy || st.duty == s_cal_duty) {
+        return;
+    }
+    power_cycle();
+    s_recal++;
+    ESP_LOGI(TAG, "light at rest at duty %u: sensor calibrated again "
+             "(%u since boot)", (unsigned)st.duty, s_recal);
+    s_cal_duty = st.duty;
+}
+
+static void on_lamp_settled(void)
+{
+    s_settled = true;
+    xTaskNotifyGive(s_task);
 }
 
 static void touch_task(void *arg)
@@ -147,6 +183,11 @@ static void touch_task(void *arg)
     gesture_t g;
     gesture_init(&g);
     trace_t tr = { .since_ms = esp_timer_get_time() / 1000 };
+    /* The sensor has just calibrated itself at whatever the light was
+     * doing; if that was a fade, the end of it brings another go. */
+    lamp_status_t st;
+    lamp_get(&st);
+    s_cal_duty = st.busy ? CAL_UNKNOWN : st.duty;
     for (;;) {
         /* Sampling runs only while a gesture is in flight; otherwise the
          * task sleeps until the sensor output moves. */
@@ -154,6 +195,14 @@ static void touch_task(void *arg)
         if (gesture_active(&g)) {
             vTaskDelay(pdMS_TO_TICKS(SAMPLE_MS));
         } else {
+            /* Never in the middle of a gesture: a series of taps would
+             * lose the ones that fall into the deaf time. Cleared before
+             * the lamp is asked, so a fade that ends meanwhile is not
+             * missed. */
+            if (s_settled) {
+                s_settled = false;
+                recalibrate();
+            }
             gpio_intr_enable(CONFIG_APP_TOUCH_IO_GPIO);
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             woke = true;
@@ -164,7 +213,9 @@ static void touch_task(void *arg)
                 lamp_hold_end();
             }
             lamp_signal(LAMP_SIGNAL_NONE);
+            ESP_LOGW(TAG, "sensor power cycled on request");
             power_cycle();
+            s_cal_duty = CAL_UNKNOWN;
             gesture_init(&g);
             woke = false;
         }
@@ -192,6 +243,11 @@ unsigned touch_stuck_count(void)
     return s_stuck;
 }
 
+unsigned touch_recal_count(void)
+{
+    return s_recal;
+}
+
 void touch_reset_sensor(void)
 {
     s_reset = true;
@@ -217,6 +273,10 @@ static void power_pins(void)
         };
         ESP_ERROR_CHECK(gpio_config(&io));
         ESP_ERROR_CHECK(gpio_set_level(pins[i], levels[i]));
+        /* These two pins are the sensor's supply. Its LED draws through
+         * them whenever it is touched, and the datasheet wants a supply
+         * that does not move: the strongest drive moves the least. */
+        ESP_ERROR_CHECK(gpio_set_drive_capability(pins[i], GPIO_DRIVE_CAP_3));
         /* Light sleep would otherwise float the pin and cut the sensor's
          * power. */
         ESP_ERROR_CHECK(gpio_sleep_sel_dis(pins[i]));
@@ -249,6 +309,7 @@ void touch_start(void)
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
     ESP_ERROR_CHECK(gpio_isr_handler_add(CONFIG_APP_TOUCH_IO_GPIO, touch_isr,
                                          NULL));
+    lamp_set_settle_listener(on_lamp_settled);
 
     ESP_LOGI(TAG, "sensor on gpio %d, power: gnd gpio %d, vcc gpio %d",
              CONFIG_APP_TOUCH_IO_GPIO, CONFIG_APP_TOUCH_GND_GPIO,
